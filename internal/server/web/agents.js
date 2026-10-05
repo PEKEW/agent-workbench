@@ -72,7 +72,12 @@ function updateAgentInputContext(){
   $('clear-agent-thread').hidden=!forwardedThread;
 }
 function previewSignature(){return JSON.stringify({text:$('agent-message').value,documents:$('include-current-document').checked?[selected]:[],threadId:forwardedThread});}
-function updateAgentSendButton(){const session=getAgent();$('send-agent-input').disabled=agentSending||!session||!['idle','running','waiting'].includes(session.state)||!agentPreview||agentPreview.signature!==previewSignature();$('send-agent-input').textContent=session&&(['running','waiting'].includes(session.state)||session.queue.length||session.queuePaused)?'加入队列':'发送';}
+function updateAgentSendButton(){
+ const session=getAgent(),connected=session&&['idle','running','waiting'].includes(session.state),previewed=agentPreview&&agentPreview.signature===previewSignature();
+ $('send-agent-input').disabled=agentSending||!connected||!previewed;
+ $('send-agent-input').textContent=session&&(['running','waiting'].includes(session.state)||session.queue.length||session.queuePaused)?'加入队列':'发送';
+ $('agent-send-hint').textContent=agentSending?'正在发送…':!session?'请先选择或启动一个会话。':!connected?'会话尚未连接，请先恢复会话或启动新会话。':!$('agent-message').value.trim()?'输入消息后，先点击「预览任务」，再发送。':!previewed?'请先点击「预览任务」；修改内容后需要重新预览。':'内容已预览，可以发送。';
+}
 function invalidateAgentPreview(){agentPreview=null;$('agent-preview-panel').hidden=true;updateAgentSendButton();}
 $('agent-message').oninput=invalidateAgentPreview;$('include-current-document').onchange=invalidateAgentPreview;
 $('clear-agent-thread').onclick=()=>{forwardedThread='';updateAgentInputContext();invalidateAgentPreview();};
