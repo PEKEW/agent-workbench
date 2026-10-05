@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Workbench</title><link rel="stylesheet" href="/style.css"><script src="/vendor.js" defer></script><script src="/app.js" defer></script></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Workbench</title><link rel="stylesheet" href="/style.css"><script src="/vendor.js" defer></script><script src="/app.js" defer></script><script src="/collaboration.js" defer></script></head>
 <body>
 <header class="topbar"><a class="brand" href="/" aria-label="Agent Workbench 首页"><span class="brand-icon">aw</span><span>Agent Workbench</span></a><span class="local-tag"><i></i> 本地工作台</span></header>
 <div id="error" class="error" role="alert" hidden></div>
@@ -20,5 +20,15 @@
  <section id="editor-panel" class="editor-panel" hidden><label for="markdown-editor">编辑原文</label><textarea id="markdown-editor" spellcheck="false" aria-label="Markdown 原文"></textarea><p>保存到当前文件；不会自动提交 Git。</p></section><details id="diagram-help" class="diagram-help" hidden><summary>这张图如何更新？</summary><p>由 agent 修改图的 JSON 源，再用 Archify 生成 HTML。当前点击“刷新”载入最新成品；文档保存不会自动更新图。</p></details><iframe id="diagram-frame" title="项目交互图" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
  <div id="empty" class="empty" hidden><span>∷</span><h2>这里还没有文档</h2><p>在项目根目录或 docs 中添加 Markdown，或在 docs/diagrams 中保存 HTML 图，然后刷新。</p></div>
  </main>
+ <aside class="discussion" aria-label="批注与讨论">
+ <div class="discussion-head"><h2>批注与讨论 <span id="thread-total">0</span></h2>
+ <div class="identity-line"><input id="author-name" value="我" maxlength="80" aria-label="当前署名"><select id="author-role" aria-label="作者角色"><option value="human">用户</option><option value="agent">Agent 署名</option></select></div>
+ <div class="discussion-actions"><button id="add-comment" class="small-button">＋ 批注</button><button id="add-memo" class="small-button">＋ 备忘</button></div>
+ <div class="panel-tabs"><button data-thread-filter="all" aria-pressed="true">全部</button><button data-thread-filter="comment" aria-pressed="false">批注</button><button data-thread-filter="memo" aria-pressed="false">备忘</button><select id="status-filter" aria-label="处理状态筛选"><option value="all">所有状态</option><option value="open">待处理</option><option value="resolved">已解决</option></select></div>
+ <p id="pending-count"></p></div><div id="thread-list" class="thread-list"></div>
+ <div class="discussion-footer"><div class="discussion-actions"><button id="export-discussion" class="small-button">导出交接 JSON</button><button id="import-discussion" class="small-button">载入回复</button><input id="discussion-file" type="file" accept=".json,application/json" hidden></div><p id="discussion-status" role="status">讨论保存到项目；Agent 署名用于记录手动转发。</p></div>
+ </aside>
 </div>
+<button id="selection-tool" class="small-button" hidden>＋ 批注选中文字</button>
+<dialog id="discussion-dialog"><form id="discussion-form"><h2 id="discussion-dialog-title"></h2><div id="discussion-dialog-body"></div><p id="discussion-dialog-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" id="discussion-dialog-cancel" class="small-button">取消</button><button type="submit" id="discussion-dialog-submit" class="small-button save-button">保存</button></div></form></dialog>
 </body></html>

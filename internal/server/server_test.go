@@ -239,3 +239,43 @@ func TestSaveOverHTTPAndRejectStaleRevision(t *testing.T) {
 		t.Fatal(string(body))
 	}
 }
+
+func TestCollaborationHTTPPersistenceAuthorizationAndConflict(t *testing.T) {
+	root := filepath.Join(t.TempDir(), "discussion")
+	p, err := project.Create(root, "协作")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(testToken, p)
+	defer s.Close()
+	if w := request(t, s, "GET", "/api/collaboration", "", "", ""); w.Code != 403 {
+		t.Fatal("unauthenticated collaboration")
+	}
+	w := request(t, s, "GET", "/api/collaboration?export=1", "", testToken, "")
+	var state project.CollaborationState
+	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &state) != nil {
+		t.Fatal(w.Body.String())
+	}
+	if len(state.Documents) == 0 || state.Documents[0].Markdown == "" {
+		t.Fatal("export omitted content")
+	}
+	payload := `{"generation":1,"threads":[{"id":"t","documentId":"PLAN.md","kind":"comment","status":"open","dueDate":"","anchor":{"quote":"当前","before":"","after":"","revision":1},"messages":[{"id":"m","author":"我","role":"human","intent":"comment","body":"第一条意见","createdAt":"2026-10-05T10:00:00Z"}]}]}`
+	if w = request(t, s, "POST", "/api/collaboration", payload, testToken, "https://example.com"); w.Code != 403 {
+		t.Fatal("external write accepted")
+	}
+	if _, err = os.Stat(filepath.Join(root, ".agent-state")); !os.IsNotExist(err) {
+		t.Fatal("read/export wrote state")
+	}
+	if w = request(t, s, "POST", "/api/collaboration", payload, testToken, ""); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	if w = request(t, s, "POST", "/api/collaboration", payload, testToken, ""); w.Code != 409 {
+		t.Fatal("stale write accepted")
+	}
+	if w = request(t, s, "GET", "/api/collaboration", "", testToken, ""); w.Code != 200 || !strings.Contains(w.Body.String(), "第一条意见") {
+		t.Fatal("saved discussion missing")
+	}
+	if w = request(t, s, "POST", "/api/collaboration", `{"generation":2,"threads":[]} {}`, testToken, ""); w.Code != 400 {
+		t.Fatal("trailing data accepted")
+	}
+}

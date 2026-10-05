@@ -34,6 +34,8 @@ func New(token string, p *project.Project) *Server {
 	mux.HandleFunc("GET /api/document", s.getDocument)
 	mux.HandleFunc("POST /api/document", s.saveDocument)
 	mux.HandleFunc("GET /api/diagram", s.getDiagram)
+	mux.HandleFunc("GET /api/collaboration", s.getCollaboration)
+	mux.HandleFunc("POST /api/collaboration", s.saveCollaboration)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "接口不存在") })
 	web, _ := fs.Sub(assets, "web")
 	files := http.FileServer(http.FS(web))
@@ -229,6 +231,60 @@ func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
 		}
 		if errors.Is(err, project.ErrReadOnly) {
 			status = 403
+		}
+		fail(w, status, err.Error())
+		return
+	}
+	respond(w, 200, saved)
+}
+
+func (s *Server) getCollaboration(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.project == nil {
+		fail(w, 409, "请先打开项目")
+		return
+	}
+	var state project.CollaborationState
+	var err error
+	if r.URL.Query().Get("export") == "1" {
+		state, err = s.project.ExportCollaboration()
+	} else {
+		state, err = s.project.Collaboration()
+	}
+	if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	respond(w, 200, state)
+}
+func (s *Server) saveCollaboration(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Generation int              `json:"generation"`
+		Threads    []project.Thread `json:"threads"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16*1024*1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil || input.Threads == nil {
+		fail(w, 400, "讨论请求格式错误或超过 16 MiB")
+		return
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		fail(w, 400, "请求只允许一个 JSON 对象")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.project == nil {
+		fail(w, 409, "请先打开项目")
+		return
+	}
+	saved, err := s.project.SaveCollaboration(input.Generation, input.Threads)
+	if err != nil {
+		status := 400
+		if errors.Is(err, project.ErrCollaborationConflict) {
+			status = 409
 		}
 		fail(w, status, err.Error())
 		return

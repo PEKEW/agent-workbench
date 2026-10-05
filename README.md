@@ -2,7 +2,7 @@
 
 以 semi-harness 项目结构为基础的本地 Agent 网页工作台。一个工作台绑定一个项目，在浏览器中打开计划、设计、证据和交互图。
 
-当前版本提供项目新建、已有项目打开、文档阅读与编辑保存、iframe 图展示。Agent 会话、任务分配、批注编辑和消息转发尚未接入。
+当前版本提供项目新建、已有项目打开、文档阅读与编辑保存、HTML 批注讨论和 iframe 图展示。Agent 会话、任务分配和自动消息转发尚未接入。
 
 ## 使用
 
@@ -53,3 +53,9 @@ python3 scripts/check_markdown.py
 ## 目录
 
 cmd/agent-workbench 是命令入口；internal/project 管理项目与内嵌模板；internal/server 提供 HTTP 和内嵌网页；docs/specs 保存设计；docs/reviews 保存证据；docs/diagrams 保存交互图；scripts 保存开发检查工具。
+
+## 文档协作
+
+工作台保留 HTML 的三栏阅读与讨论：选中文字批注、整篇意见、备忘日期、回复／Rebuttal／结论、解决与重开及删除。讨论保存到 `.agent-state/collaboration.json`，刷新或重启服务后继续；该目录默认不进入 Git。多标签页保存发生冲突时保留输入、载入最新讨论，核对后再提交。
+
+“导出交接 JSON”包含项目最新正文与完整讨论，兼容 agent-docs-workspace v1；“载入回复”合并同一工作区的回复及讨论，相同 ID 的重复内容跳过。正文修改建议会作为待处理讨论展示，由用户核对后通过原文编辑器采纳。Agent 署名仅记录手动转发，真实 agent 接入与自动转发尚未实现。

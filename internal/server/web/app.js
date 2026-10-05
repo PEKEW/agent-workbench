@@ -30,7 +30,7 @@ async function api(path, body) {
     ...(body ? {body: JSON.stringify(body)} : {})
   });
   const result = await response.json();
-  if (!response.ok) throw new Error(result.error || '读取失败');
+  if (!response.ok) {const error=new Error(result.error || '读取失败');error.status=response.status;throw error;}
   return result;
 }
 function setBusy(form, busy) {
@@ -88,6 +88,7 @@ async function showProject(info) {
   for(const warning of info.warnings){const li=document.createElement('li');li.textContent=warning;$('warning-list').append(li);}
   $('warning-summary').textContent=`${info.warnings.length} 项需要补充 · 点击查看`;$('warnings').hidden=!info.warnings.length;
   renderList();
+  try {await loadCollaboration();}catch(error){showError(error);}
   const all=entries();const target=all.find(d=>d.path===selected)||all.find(d=>d.path==='PLAN.md')||all.find(d=>d.path==='README.md')||all[0];
   $('empty').hidden=!!target;
   if(target) await loadEntry(target);else {selected='';$('article').replaceChildren();$('raw-content').hidden=true;$('diagram-frame').hidden=true;$('diagram-frame').removeAttribute('srcdoc');$('current-path').textContent='暂无文档';$('raw-button').hidden=true;}
@@ -114,7 +115,8 @@ function renderMarkdown() {
   }
 }
 async function loadEntry(item) {
-  if(!leaveEditor())return;const sequence=++readSequence;selected=item.path;selectedKind=item.kind;markdown='';$('article').replaceChildren();$('raw-content').textContent='';$('raw-button').disabled=true;$('edit-button').disabled=true;editable=false;revision='';$('save-status').textContent='';renderList();if(isEngineering(item))$('engineering-files').open=true;showError(null);
+  if(!leaveEditor())return;
+  resetDiscussionSelection();const sequence=++readSequence;selected=item.path;selectedKind=item.kind;markdown='';$('article').replaceChildren();$('raw-content').textContent='';$('raw-button').disabled=true;$('edit-button').disabled=true;editable=false;revision='';$('save-status').textContent='';renderList();renderThreads();if(isEngineering(item))$('engineering-files').open=true;showError(null);
   $('current-path').textContent=item.path;$('view-kind').textContent=item.kind==='diagram'?'项目交互图':'项目文档';$('loading').hidden=false;$('empty').hidden=true;
   $('article').hidden=true;$('raw-content').hidden=true;$('diagram-frame').hidden=true;$('diagram-frame').removeAttribute('srcdoc');$('raw-button').hidden=item.kind==='diagram';$('edit-button').hidden=item.kind==='diagram';$('diagram-help').hidden=item.kind!=='diagram';
   try {
@@ -125,7 +127,7 @@ async function loadEntry(item) {
       const policy="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'";
       $('diagram-frame').srcdoc=`<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}">`+data.html;
       $('diagram-frame').hidden=false;
-    } else {markdown=data.markdown;revision=data.revision;editable=data.editable;$('raw-button').disabled=false;$('edit-button').disabled=!editable;$('edit-button').title=editable?'':'此文件为只读';renderMarkdown();}
+    } else {markdown=data.markdown;revision=data.revision;editable=data.editable;$('raw-button').disabled=false;$('edit-button').disabled=!editable;$('edit-button').title=editable?'':'此文件为只读';renderMarkdown();renderThreads();}
   } catch(error) {if(sequence===readSequence)showError(error);}
   finally {if(sequence===readSequence)$('loading').hidden=true;}
 }
@@ -135,7 +137,7 @@ $('refresh-button').addEventListener('click',async()=>{
   if(!leaveEditor())return;$('refresh-button').disabled=true;showError(null);
   try{await showProject(await api('project'));}catch(error){showError(error);}finally{$('refresh-button').disabled=false;}
 });
-(async()=>{try{if(!token)throw new Error('请使用终端显示的完整地址打开工作台。');await showProject(await api('project'));}catch(error){$('welcome').hidden=false;showError(error);}})();
+window.addEventListener('DOMContentLoaded',async()=>{try{if(!token)throw new Error('请使用终端显示的完整地址打开工作台。');await showProject(await api('project'));}catch(error){$('welcome').hidden=false;showError(error);}},{once:true});
 
 $('edit-button').addEventListener('click',()=>{
   if(!editable||saving)return;editing=true;raw=false;$('markdown-editor').value=markdown;$('editor-panel').hidden=false;$('article').hidden=true;$('raw-content').hidden=true;$('raw-button').hidden=true;$('edit-button').hidden=true;$('save-button').hidden=false;$('cancel-button').hidden=false;$('save-status').textContent='';$('markdown-editor').focus();
@@ -144,7 +146,7 @@ $('markdown-editor').addEventListener('input',()=>{$('save-status').textContent=
 $('cancel-button').addEventListener('click',()=>{if(leaveEditor()){renderMarkdown();$('save-status').textContent='';}});
 $('save-button').addEventListener('click',async()=>{
   if(!editing||saving)return;saving=true;$('save-button').disabled=true;$('cancel-button').disabled=true;$('markdown-editor').disabled=true;showError(null);
-  try{const data=await api('document',{path:selected,markdown:$('markdown-editor').value,revision});markdown=data.markdown;revision=data.revision;saving=false;editing=false;leaveEditor();renderMarkdown();$('save-status').textContent='已保存';}
+  try{const data=await api('document',{path:selected,markdown:$('markdown-editor').value,revision});markdown=data.markdown;revision=data.revision;saving=false;editing=false;leaveEditor();renderMarkdown();$('save-status').textContent='已保存';try{await loadCollaboration();}catch(error){showError(error);}}
   catch(error){showError(error);$('save-status').textContent='草稿已保留';}
   finally{saving=false;$('save-button').disabled=false;$('cancel-button').disabled=false;$('markdown-editor').disabled=false;}
 });
