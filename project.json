@@ -1,0 +1,38 @@
+{
+  "project_name": "agent-workbench",
+  "remote_exec": "本机",
+  "remote_path": "",
+  "readonly_zones": "docs/reviews/discussion",
+  "frozen_snapshot_prefix": "docs/reviews/",
+  "current_state": {
+    "docs": [
+      "README.md",
+      "AGENTS.md",
+      "CLAUDE.md",
+      "PLAN.md",
+      "docs/task_plan.md",
+      "docs/findings.md"
+    ],
+    "dirs": [
+      "docs/specs",
+      "docs/standards",
+      ".claude/rules"
+    ]
+  },
+  "line_limits": {
+    "PLAN.md": 60,
+    "progress.md": 100
+  },
+  "rule_definition_docs": [
+    "docs/standards/writing.md",
+    "docs/standards/coding.md",
+    ".claude/rules/markdown-style.md"
+  ],
+  "kernel": {
+    "source": "docs/standards/writing.md",
+    "target": ".claude/rules/markdown-style.md",
+    "start_marker": "<!-- CLAUDE-WRITING-KERNEL:START -->",
+    "end_marker": "<!-- CLAUDE-WRITING-KERNEL:END -->",
+    "frontmatter": "---\npaths:\n  - \"*.md\"\n  - \"**/*.md\"\n---\n"
+  }
+}

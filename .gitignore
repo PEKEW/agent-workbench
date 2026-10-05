@@ -1,0 +1,12 @@
+# Local environment and generated caches
+.DS_Store
+__pycache__/
+*.py[cod]
+.venv/
+node_modules/
+dist/
+coverage/
+.agent-state/
+.env
+.env.*
+!.env.example

@@ -1,0 +1,9 @@
+{
+  "semi_harness_commit": "b599fb0b0b0de887aeb802174171eeafb9f24b09",
+  "html_template_commit": "2388bf94232bef4ea6c2d21b7344908d2783d105",
+  "files": {
+    "workspace.json": "b5e586759487a0535c28d4689ed23926af5e45e01d5a39ab2e9cf6fa9d28a0f4",
+    "index.html": "ace2338b9dbaaf7aa04c6433eacbc10032d0f159dc351187d237e3029beaf0ef",
+    "user-export.json": "c4a6251830e8ce6b29dd752e932cb64a5a1a406aac917d6b2d0618b555d8ff3b"
+  }
+}
