@@ -2,7 +2,7 @@
 
 以 semi-harness 项目结构为基础的本地 Agent 网页工作台。一个工作台绑定一个项目，在浏览器中打开计划、设计、证据和交互图。
 
-当前版本提供项目新建、已有项目打开、文档阅读与编辑保存、HTML 批注讨论和 iframe 图展示。Agent 会话、任务分配和自动消息转发尚未接入。
+当前版本提供项目新建、已有项目打开、文档阅读与编辑保存、HTML 批注讨论和 iframe 图展示。已接入 Codex 新会话、任务输入、原生审批、执行事件、排队和手动讨论转发；独立任务管理与自动广播尚未实现。
 
 ## 使用
 
@@ -58,4 +58,20 @@ cmd/agent-workbench 是命令入口；internal/project 管理项目与内嵌模�
 
 工作台保留 HTML 的三栏阅读与讨论：选中文字批注、整篇意见、备忘日期、回复／Rebuttal／结论、解决与重开及删除。讨论保存到 `.agent-state/collaboration.json`，刷新或重启服务后继续；该目录默认不进入 Git。多标签页保存发生冲突时保留输入、载入最新讨论，核对后再提交。
 
-“导出交接 JSON”包含项目最新正文与完整讨论，兼容 agent-docs-workspace v1；“载入回复”合并同一工作区的回复及讨论，相同 ID 的重复内容跳过。正文修改建议会作为待处理讨论展示，由用户核对后通过原文编辑器采纳。Agent 署名仅记录手动转发，真实 agent 接入与自动转发尚未实现。
+“导出交接 JSON”包含项目最新正文与完整讨论，兼容 agent-docs-workspace v1；“载入回复”合并同一工作区的回复及讨论，相同 ID 的重复内容跳过。正文修改建议会作为待处理讨论展示，由用户核对后通过原文编辑器采纳。讨论中的署名用于记录发言者。通过 Agent 会话视图可连接真实 Codex，并将选定讨论转发给该会话；回复可人工加入讨论，来源会话和 item ID 随消息保留。
+
+## Codex 会话
+
+本机需要已安装并登录 Codex CLI。首个适配版本核对于 codex-cli 0.160.0，运行时通过 PATH 查找 codex；Go 产品不依赖 Node.js。通过网页的“Agent 会话 → 启动 Codex”创建，或使用专用命令：
+
+```sh
+./bin/agent-workbench connect --agent-name Codex /完整/项目目录
+```
+
+可在目录前指定 `--model`、`--sandbox read-only`、`--approval on-request`；默认沿用模型配置，使用 workspace-write 与 on-request。`--codex-bin` 仅用于本机明确指定可执行路径。专用命令启动新的 app-server 会话并将日常输入交给网页，当前不接管已有 TUI。
+
+发送任务前先预览，选择是否附上当前文档或一条讨论。忙碌会话排队，失败或中断后队列暂停；可人工继续或清空。原生审批和问题在网页响应，普通聊天不替代审批。“停止回合”中断当前任务；“关闭会话”结束本服务创建的运行时。
+
+原始事件保存在 `.agent-state/sessions/`。网页默认显示最近 100 条可读事件，勾选原始事件或展开“查看完整原始日志”按序补读历史。网页重连不停止任务；服务重启后会话标为已断开，点击“恢复会话”尝试恢复记录的原生 thread，不自动重发结果不明的输入。Native isSecret 回答在工作台日志中遮蔽。
+
+验证见 [阶段二检查](docs/reviews/codex-access.md)。运行 Go 测试用 `go test -race ./...`；前端并发检查为 `node scripts/agent_ui_test.mjs`，真实 Chrome 集成检查为 `node scripts/browser_smoke.mjs`。浏览器检查使用明确标注的测试协议进程；真实 CLI／模型另行验证。

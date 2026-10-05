@@ -20,3 +20,18 @@ func TestInvalidArguments(t *testing.T) {
 		}
 	}
 }
+
+func TestConnectArguments(t *testing.T) {
+	options, err := parseArgs([]string{"connect", "--agent-name", "评审", "--model", "custom-model", "--sandbox", "read-only", "--approval", "on-request", "--no-browser", "/tmp/project"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if options.Action != "connect" || options.AgentName != "评审" || options.Model != "custom-model" || options.Sandbox != "read-only" || options.Approval != "on-request" {
+		t.Fatalf("connect options lost: %+v", options)
+	}
+	for _, args := range [][]string{{"connect", "--sandbox", "danger-full-access", "/tmp/project"}, {"open", "--model", "x", "/tmp/project"}, {"connect", "--approval", "automatic", "/tmp/project"}} {
+		if _, err := parseArgs(args); err == nil {
+			t.Fatalf("invalid connect flags accepted: %v", args)
+		}
+	}
+}

@@ -81,6 +81,7 @@ function leaveEditor(){
 }
 async function showProject(info) {
   if(!leaveEditor())return;project=info;$('welcome').hidden=!!info;$('workspace').hidden=!info;
+  $('mode-switch').hidden=!info;
   if (!info) return;
   $('project-name').textContent=info.name;$('project-root').textContent=info.root;
   document.title=`${info.name} · Agent Workbench`;
@@ -92,7 +93,9 @@ async function showProject(info) {
   const all=entries();const target=all.find(d=>d.path===selected)||all.find(d=>d.path==='PLAN.md')||all.find(d=>d.path==='README.md')||all[0];
   $('empty').hidden=!!target;
   if(target) await loadEntry(target);else {selected='';$('article').replaceChildren();$('raw-content').hidden=true;$('diagram-frame').hidden=true;$('diagram-frame').removeAttribute('srcdoc');$('current-path').textContent='暂无文档';$('raw-button').hidden=true;}
+  await loadAgentProject();
 }
+
 function renderMarkdown() {
   $('raw-button').setAttribute('aria-pressed',String(raw));
   $('raw-content').hidden=!raw;$('article').hidden=raw;$('raw-content').textContent=markdown;

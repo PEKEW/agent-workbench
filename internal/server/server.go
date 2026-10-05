@@ -2,6 +2,7 @@
 package server
 
 import (
+	"agent-workbench/internal/agent"
 	"agent-workbench/internal/project"
 	"crypto/subtle"
 	"embed"
@@ -19,15 +20,22 @@ var assets embed.FS
 
 // Server 在一个进程内只绑定一个项目。
 type Server struct {
-	mu      sync.RWMutex
-	project *project.Project
-	token   string
-	handler http.Handler
+	mu          sync.RWMutex
+	project     *project.Project
+	token       string
+	handler     http.Handler
+	agents      *agent.Manager
+	codexBinary string
 }
 
 // New 构建本地接口；项目句柄的所有权交给 Server。
 func New(token string, p *project.Project) *Server {
-	s := &Server{project: p, token: token}
+	return NewWithCodex(token, p, "codex")
+}
+
+// NewWithCodex 仅从本地启动配置接收 CLI 路径，网页不能指定可执行文件。
+func NewWithCodex(token string, p *project.Project, binary string) *Server {
+	s := &Server{project: p, token: token, codexBinary: binary}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/project", s.getProject)
 	mux.HandleFunc("POST /api/project", s.bindProject)
@@ -36,6 +44,7 @@ func New(token string, p *project.Project) *Server {
 	mux.HandleFunc("GET /api/diagram", s.getDiagram)
 	mux.HandleFunc("GET /api/collaboration", s.getCollaboration)
 	mux.HandleFunc("POST /api/collaboration", s.saveCollaboration)
+	s.registerAgents(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "接口不存在") })
 	web, _ := fs.Sub(assets, "web")
 	files := http.FileServer(http.FS(web))
@@ -86,6 +95,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.agents != nil {
+		s.agents.Close()
+		s.agents = nil
+	}
 	if s.project != nil {
 		err := s.project.Close()
 		s.project = nil
