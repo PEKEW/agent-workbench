@@ -1,0 +1,157 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Agent Workbench 阶段一架构设计",
+    "output": "docs/diagrams/project-architecture.html",
+    "locale": "zh-CN",
+    "quality_profile": "showcase"
+  },
+  "components": [
+    {
+      "id": "entry",
+      "type": "external",
+      "label": "命令入口",
+      "sublabel": "启动单项目工作台",
+      "pos": [
+        40,
+        60
+      ],
+      "size": [
+        190,
+        70
+      ]
+    },
+    {
+      "id": "web",
+      "type": "frontend",
+      "label": "网页工作台",
+      "sublabel": "创建 / 打开 / 阅读",
+      "pos": [
+        40,
+        260
+      ],
+      "size": [
+        190,
+        70
+      ]
+    },
+    {
+      "id": "service",
+      "type": "backend",
+      "label": "Go 本地服务",
+      "sublabel": "回环地址与访问凭证",
+      "pos": [
+        380,
+        260
+      ],
+      "size": [
+        210,
+        70
+      ]
+    },
+    {
+      "id": "project",
+      "type": "database",
+      "label": "项目目录",
+      "sublabel": "Markdown / 配置 / 图",
+      "pos": [
+        750,
+        260
+      ],
+      "size": [
+        200,
+        70
+      ]
+    },
+    {
+      "id": "template",
+      "type": "backend",
+      "label": "内嵌模板",
+      "sublabel": "仅向新目录写入",
+      "pos": [
+        380,
+        60
+      ],
+      "size": [
+        210,
+        70
+      ]
+    },
+    {
+      "id": "diagram",
+      "type": "frontend",
+      "label": "Archify 图视图",
+      "sublabel": "独立 HTML 与 iframe",
+      "pos": [
+        40,
+        480
+      ],
+      "size": [
+        190,
+        70
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "launch",
+      "from": "entry",
+      "to": "web",
+      "label": "打开网页"
+    },
+    {
+      "id": "request",
+      "from": "web",
+      "to": "service",
+      "label": "带凭证请求"
+    },
+    {
+      "id": "files",
+      "from": "service",
+      "to": "project",
+      "label": "创建或只读打开"
+    },
+    {
+      "id": "copy",
+      "from": "service",
+      "to": "template",
+      "label": "新建时取模板"
+    },
+    {
+      "id": "frame",
+      "from": "web",
+      "to": "diagram",
+      "label": "隔离展示"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "本阶段范围",
+      "items": [
+        "一个进程绑定一个项目",
+        "项目打开后可阅读文档与图",
+        "已有文档保持原样"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "图的维护",
+      "items": [
+        "JSON 保存可编辑设计源",
+        "Archify 生成独立 HTML",
+        "iframe 只显示成品，无双向同步"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "后续阶段",
+      "items": [
+        "Codex 接入与原生审批",
+        "任务分配与人工消息转发",
+        "此图表示设计，不表示 agent 功能已实现"
+      ]
+    }
+  ]
+}

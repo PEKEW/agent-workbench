@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "ok": true,
+  "command": "finalize",
+  "status": "pass",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.json",
+    "sha256": "1fe0e8c70ae043f5679eb84283210fc170c5c07f7875158a66bf0d5124f31750",
+    "bytes": 2963
+  },
+  "artifact": {
+    "path": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.html",
+    "sha256": "2f2a46ea2d99ec62e819ef84ee03eb22ff92c47c5587150d240ee94df01e3e1c",
+    "bytes": 753051
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "pass"
+  },
+  "diagnostics": [],
+  "diagnosticSummary": {
+    "total": 0,
+    "shown": 0,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.finalize.json",
+    "summaryReceipt": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.finalize-summary.json",
+    "browserCheckReceipt": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.browser-check.json"
+  },
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "disabled"
+  },
+  "visualReview": "not-requested",
+  "durationMs": 2144
+}

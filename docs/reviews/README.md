@@ -5,3 +5,5 @@
 - [讨论数据](discussion/workspace.json)：页面对应的结构化数据。
 
 讨论快照保持原样，后续证据建立新文件。
+
+- [阶段一验证](stage-one.md)：Go 测试与真实浏览器证据。

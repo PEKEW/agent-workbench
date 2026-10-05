@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Agent Workbench</title><link rel="stylesheet" href="/style.css"><script src="/vendor.js" defer></script><script src="/app.js" defer></script></head>
+<body>
+<header class="topbar"><a class="brand" href="/" aria-label="Agent Workbench 首页"><span class="brand-icon">aw</span><span>Agent Workbench</span></a><span class="local-tag"><i></i> 本地工作台</span></header>
+<div id="error" class="error" role="alert" hidden></div>
+<main id="welcome" class="welcome" hidden>
+ <div class="intro"><span class="eyebrow">项目入口</span><h1>从一个项目开始。</h1><p>打开计划、设计和证据，让工作在同一处接续。</p></div>
+ <div class="entry-grid">
+ <section class="entry-card"><span class="step">01 / 已有项目</span><h2>继续工作</h2><p>选择 semi-harness 项目目录，读取当前文档。</p><form id="open-form"><label for="open-path">项目目录</label><input id="open-path" name="path" placeholder="/Users/you/projects/my-project" required autocomplete="off"><small>填写本机完整路径；现有文件保持原样。</small><button class="primary" type="submit">打开项目 <span>↗</span></button></form></section>
+ <section class="entry-card"><span class="step">02 / 新建项目</span><h2>建立工作空间</h2><p>使用 semi-harness 模板，准备项目文档与规范。</p><form id="new-form"><label for="new-name">项目名称</label><input id="new-name" name="name" placeholder="例如：data-review" maxlength="100" required autocomplete="off"><label for="new-path">新目录</label><input id="new-path" name="path" placeholder="/Users/you/projects/new-project" required autocomplete="off"><small>父目录需要存在，目标目录尚未创建。</small><button class="secondary" type="submit">创建并打开 <span>＋</span></button></form></section>
+ </div><p class="footnote">一个工作台对应一个项目。项目打开后，可阅读文档和交互图。</p>
+</main>
+<div id="workspace" class="workspace" hidden>
+ <aside class="sidebar"><div class="project-heading"><span class="eyebrow">当前项目</span><h2 id="project-name"></h2><p id="project-root"></p></div><label class="filter-label" for="filter">筛选文件</label><input id="filter" type="search" placeholder="输入名称或路径"><div class="list-heading"><span>项目内容</span><span id="document-count"></span></div><nav id="document-list" aria-label="项目文件"></nav><div class="sidebar-foot">文档来自项目目录<br>更改后点击刷新即可重新载入</div></aside>
+ <main class="reader"><div class="reader-toolbar"><div class="breadcrumb"><span id="view-kind">项目文档</span><strong id="current-path">选择一份文档</strong></div><div class="reader-actions"><button id="raw-button" class="small-button" aria-pressed="false">原文</button><button id="refresh-button" class="small-button">↻ 刷新</button></div></div>
+ <details id="warnings" class="warnings" hidden><summary id="warning-summary"></summary><ul id="warning-list"></ul></details>
+ <div id="loading" class="loading" role="status" hidden>正在读取…</div>
+ <article id="article" class="article"></article><pre id="raw-content" class="raw-content" hidden></pre>
+ <iframe id="diagram-frame" title="项目交互图" sandbox="allow-scripts" referrerpolicy="no-referrer" hidden></iframe>
+ <div id="empty" class="empty" hidden><span>∷</span><h2>这里还没有文档</h2><p>在项目根目录或 docs 中添加 Markdown，或在 docs/diagrams 中保存 HTML 图，然后刷新。</p></div>
+ </main>
+</div>
+</body></html>

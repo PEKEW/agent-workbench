@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "0d212ff8-ad86-4500-944f-5245246d5281",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.json",
+  "output": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.html",
+  "specification": {
+    "sha256": "1fe0e8c70ae043f5679eb84283210fc170c5c07f7875158a66bf0d5124f31750",
+    "bytes": 2963
+  },
+  "artifact": {
+    "sha256": "2f2a46ea2d99ec62e819ef84ee03eb22ff92c47c5587150d240ee94df01e3e1c",
+    "bytes": 753051
+  }
+}

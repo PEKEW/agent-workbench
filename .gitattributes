@@ -1,0 +1,3 @@
+# Preserve generated diagram bytes and validation hashes.
+docs/diagrams/*.html -whitespace linguist-generated=true
+internal/server/web/vendor.js linguist-vendored=true
