@@ -198,3 +198,105 @@ func TestDiagramReadBoundary(t *testing.T) {
 		}
 	}
 }
+
+func TestSaveDocumentAndConflict(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "PLAN.md", "# 原文")
+	if err := os.Chmod(filepath.Join(root, "PLAN.md"), 0660); err != nil {
+		t.Fatal(err)
+	}
+	p, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	d, err := p.DocumentState("PLAN.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	saved, err := p.SaveDocument("PLAN.md", "# 修改\n", d.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(filepath.Join(root, "PLAN.md"))
+	st, _ := os.Stat(filepath.Join(root, "PLAN.md"))
+	if st.Mode().Perm() != 0660 {
+		t.Fatalf("文件权限改变：%v", st.Mode())
+	}
+	if string(b) != "# 修改\n" || saved.Revision == d.Revision {
+		t.Fatalf("%s %+v", b, saved)
+	}
+	if _, err = p.SaveDocument("PLAN.md", "overwrite", d.Revision); err == nil {
+		t.Fatal("旧版本覆盖成功")
+	}
+	b, _ = os.ReadFile(filepath.Join(root, "PLAN.md"))
+	if string(b) != "# 修改\n" {
+		t.Fatal("冲突改变文件")
+	}
+	put(t, root, "PLAN.md", "external")
+	if _, err = p.SaveDocument("PLAN.md", "overwrite", saved.Revision); err == nil {
+		t.Fatal("外部修改被覆盖")
+	}
+}
+func TestSaveRejectsReadonlyAndInvalidPaths(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "PLAN.md", "ok")
+	put(t, root, "project.json", `{"readonly_zones":"docs/frozen/"}`)
+	put(t, root, "docs/frozen/a.md", "keep")
+	put(t, root, "docs/reviews/discussion/a.md", "keep")
+	p, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	for _, path := range []string{"docs/frozen/a.md", "docs/reviews/discussion/a.md"} {
+		d, err := p.DocumentState(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Editable {
+			t.Fatalf("%s 可写", path)
+		}
+		if _, err = p.SaveDocument(path, "bad", d.Revision); err == nil {
+			t.Fatal("只读写入成功")
+		}
+	}
+	for _, path := range []string{"../outside.md", "project.json", "missing.md"} {
+		if _, err = p.SaveDocument(path, "bad", "hash"); err == nil {
+			t.Fatalf("非法写入 %s", path)
+		}
+	}
+}
+
+func TestReadonlyPathAliases(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "PLAN.md", "ok")
+	put(t, root, "project.json", `{"readonly_zones":"docs/frozen"}`)
+	put(t, root, "docs/frozen/a.md", "keep")
+	put(t, root, "docs/reviews/discussion/a.md", "keep")
+	p, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	checked := 0
+	for _, path := range []string{"docs/FROZEN/a.md", "docs/reviews/Discussion/a.md"} {
+		if _, err := os.Stat(filepath.Join(root, path)); err != nil {
+			continue
+		}
+		checked++
+		d, err := p.DocumentState(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d.Editable {
+			t.Fatalf("路径别名绕过只读：%s", path)
+		}
+		if _, err = p.SaveDocument(path, "changed", d.Revision); err == nil {
+			t.Fatal("只读别名可写")
+		}
+	}
+	if checked == 0 {
+		t.Skip("文件系统区分大小写")
+	}
+}

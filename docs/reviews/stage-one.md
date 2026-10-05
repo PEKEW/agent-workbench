@@ -40,3 +40,8 @@ Go CLI 与本地 HTTP 服务；内嵌 semi-harness 模板；新建或只读打�
 - [文档阅读截图](stage-one-reader.png)。
 - [架构 iframe 截图](stage-one-architecture.png)。
 - [窄屏截图](stage-one-mobile.png)。
+- [原文编辑截图](stage-one-editor.png)。
+
+## 阅读器完善验证
+
+增加工程文件折叠、原文编辑与保存。Go 测试覆盖保存、过期版本、只读区域和冻结记录；HTTP 验证同样要求访问凭证。浏览器验证默认隐藏与展开、实际写回、外部冲突保留草稿、取消切换保留未保存内容。保存保持文件权限并用同目录替换；版本检查覆盖检测到的外部改动，外部进程并发写入仍依赖 Git 与人工 diff 协作。

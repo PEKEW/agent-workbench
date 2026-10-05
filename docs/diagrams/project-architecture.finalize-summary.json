@@ -7,13 +7,13 @@
   "quality": "showcase",
   "specification": {
     "path": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.json",
-    "sha256": "1fe0e8c70ae043f5679eb84283210fc170c5c07f7875158a66bf0d5124f31750",
-    "bytes": 2963
+    "sha256": "a2eb4c3c03b67a914dbe7a9018e334c4bb7c1ca6a1e3042187fc530b8cf4aeb3",
+    "bytes": 2957
   },
   "artifact": {
     "path": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.html",
-    "sha256": "2f2a46ea2d99ec62e819ef84ee03eb22ff92c47c5587150d240ee94df01e3e1c",
-    "bytes": 753051
+    "sha256": "79049eb188dd5f5cadbdd9af1c19f88ac1d2dcec467f2e80667e7e95e8ce094e",
+    "bytes": 753064
   },
   "gates": {
     "validate": "pass",
@@ -44,5 +44,5 @@
     "reason": "disabled"
   },
   "visualReview": "not-requested",
-  "durationMs": 2144
+  "durationMs": 1882
 }

@@ -201,3 +201,41 @@ func TestDiagramEndpointRequiresToken(t *testing.T) {
 		t.Fatal(w.Code)
 	}
 }
+
+func TestSaveOverHTTPAndRejectStaleRevision(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "PLAN.md"), []byte("before"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := project.Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := New(testToken, p)
+	defer s.Close()
+	w := request(t, s, "GET", "/api/document?path=PLAN.md", "", testToken, "")
+	var doc project.DocumentContent
+	if err = json.Unmarshal(w.Body.Bytes(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	if doc.Revision == "" || !doc.Editable {
+		t.Fatal(doc)
+	}
+	payload, _ := json.Marshal(map[string]string{"path": "PLAN.md", "markdown": "after", "revision": doc.Revision})
+	w = request(t, s, "POST", "/api/document", string(payload), testToken, "")
+	if w.Code != 200 {
+		t.Fatalf("%d %s", w.Code, w.Body.String())
+	}
+	w = request(t, s, "POST", "/api/document", string(payload), testToken, "")
+	if w.Code != 409 {
+		t.Fatal(w.Code)
+	}
+	w = request(t, s, "POST", "/api/document", string(payload), "", "")
+	if w.Code != 403 {
+		t.Fatal(w.Code)
+	}
+	body, _ := os.ReadFile(filepath.Join(root, "PLAN.md"))
+	if string(body) != "after" {
+		t.Fatal(string(body))
+	}
+}

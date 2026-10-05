@@ -1,5 +1,9 @@
 {
   "newProject": true,
+  "engineeringFilesHidden": true,
+  "editorSave": true,
+  "saveConflictPreservesDraft": true,
+  "unsavedNavigationProtected": true,
   "existingDirectoryPreserved": true,
   "existingProjectReadOnly": true,
   "duplicateDocumentPaths": true,

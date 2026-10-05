@@ -6,11 +6,11 @@
   "status": "pass",
   "visualReview": "not-requested",
   "provenance": "current",
-  "deliveryReceiptId": "0d212ff8-ad86-4500-944f-5245246d5281",
+  "deliveryReceiptId": "7966b050-ebf2-42c6-a622-cc34e6719f8a",
   "artifact": {
     "path": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.html",
-    "sha256": "2f2a46ea2d99ec62e819ef84ee03eb22ff92c47c5587150d240ee94df01e3e1c",
-    "bytes": 753051
+    "sha256": "79049eb188dd5f5cadbdd9af1c19f88ac1d2dcec467f2e80667e7e95e8ce094e",
+    "bytes": 753064
   },
   "state": {
     "detail": "read",

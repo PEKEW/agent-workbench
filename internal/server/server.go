@@ -1,4 +1,4 @@
-// Package server 提供本地项目入口和只读文档接口。
+// Package server 提供本地项目入口和文档读写接口。
 package server
 
 import (
@@ -32,6 +32,7 @@ func New(token string, p *project.Project) *Server {
 	mux.HandleFunc("GET /api/project", s.getProject)
 	mux.HandleFunc("POST /api/project", s.bindProject)
 	mux.HandleFunc("GET /api/document", s.getDocument)
+	mux.HandleFunc("POST /api/document", s.saveDocument)
 	mux.HandleFunc("GET /api/diagram", s.getDiagram)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "接口不存在") })
 	web, _ := fs.Sub(assets, "web")
@@ -169,7 +170,7 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	path := r.URL.Query().Get("path")
-	body, err := s.project.ReadDocument(path)
+	body, err := s.project.DocumentState(path)
 	if err != nil {
 		status := 400
 		if errors.Is(err, fs.ErrNotExist) {
@@ -178,7 +179,7 @@ func (s *Server) getDocument(w http.ResponseWriter, r *http.Request) {
 		fail(w, status, err.Error())
 		return
 	}
-	respond(w, 200, map[string]string{"path": path, "markdown": body})
+	respond(w, 200, body)
 }
 
 func (s *Server) getDiagram(w http.ResponseWriter, r *http.Request) {
@@ -195,4 +196,42 @@ func (s *Server) getDiagram(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 200, map[string]string{"path": path, "html": body})
+}
+
+func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		Path     string `json:"path"`
+		Markdown string `json:"markdown"`
+		Revision string `json:"revision"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16*1024*1024))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&input); err != nil {
+		fail(w, 400, "保存请求格式错误或正文过大")
+		return
+	}
+	var extra any
+	if decoder.Decode(&extra) != io.EOF {
+		fail(w, 400, "请求只允许一个 JSON 对象")
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.project == nil {
+		fail(w, 409, "请先打开项目")
+		return
+	}
+	saved, err := s.project.SaveDocument(input.Path, input.Markdown, input.Revision)
+	if err != nil {
+		status := 400
+		if errors.Is(err, project.ErrConflict) {
+			status = 409
+		}
+		if errors.Is(err, project.ErrReadOnly) {
+			status = 403
+		}
+		fail(w, status, err.Error())
+		return
+	}
+	respond(w, 200, saved)
 }

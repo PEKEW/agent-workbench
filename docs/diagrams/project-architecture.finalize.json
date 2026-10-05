@@ -5,16 +5,16 @@
   "status": "pass",
   "type": "architecture",
   "quality": "showcase",
-  "startedAt": "2026-10-05T09:50:38.546Z",
+  "startedAt": "2026-10-05T10:19:24.608Z",
   "specification": {
     "path": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.json",
-    "sha256": "1fe0e8c70ae043f5679eb84283210fc170c5c07f7875158a66bf0d5124f31750",
-    "bytes": 2963
+    "sha256": "a2eb4c3c03b67a914dbe7a9018e334c4bb7c1ca6a1e3042187fc530b8cf4aeb3",
+    "bytes": 2957
   },
   "artifact": {
     "path": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.html",
-    "sha256": "2f2a46ea2d99ec62e819ef84ee03eb22ff92c47c5587150d240ee94df01e3e1c",
-    "bytes": 753051
+    "sha256": "79049eb188dd5f5cadbdd9af1c19f88ac1d2dcec467f2e80667e7e95e8ce094e",
+    "bytes": 753064
   },
   "stages": {
     "validate": {
@@ -38,8 +38,8 @@
         "ok": true,
         "command": "validate",
         "specification": {
-          "sha256": "1fe0e8c70ae043f5679eb84283210fc170c5c07f7875158a66bf0d5124f31750",
-          "bytes": 2963
+          "sha256": "a2eb4c3c03b67a914dbe7a9018e334c4bb7c1ca6a1e3042187fc530b8cf4aeb3",
+          "bytes": 2957
         },
         "validation": {
           "checksPassed": 9,
@@ -54,7 +54,7 @@
     "deliver": {
       "status": "pass",
       "exitCode": 0,
-      "durationMs": 171,
+      "durationMs": 215,
       "command": [
         "/opt/homebrew/Cellar/node/24.10.0/bin/node",
         "/private/tmp/agent-workbench-archify/archify/bin/archify.mjs",
@@ -68,19 +68,19 @@
       ],
       "receipt": {
         "schemaVersion": 1,
-        "receiptId": "0d212ff8-ad86-4500-944f-5245246d5281",
+        "receiptId": "7966b050-ebf2-42c6-a622-cc34e6719f8a",
         "ok": true,
         "command": "deliver",
         "type": "architecture",
         "input": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.json",
         "output": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.html",
         "specification": {
-          "sha256": "1fe0e8c70ae043f5679eb84283210fc170c5c07f7875158a66bf0d5124f31750",
-          "bytes": 2963
+          "sha256": "a2eb4c3c03b67a914dbe7a9018e334c4bb7c1ca6a1e3042187fc530b8cf4aeb3",
+          "bytes": 2957
         },
         "artifact": {
-          "sha256": "2f2a46ea2d99ec62e819ef84ee03eb22ff92c47c5587150d240ee94df01e3e1c",
-          "bytes": 753051
+          "sha256": "79049eb188dd5f5cadbdd9af1c19f88ac1d2dcec467f2e80667e7e95e8ce094e",
+          "bytes": 753064
         },
         "validation": {
           "checksPassed": 9,
@@ -106,7 +106,7 @@
     "check": {
       "status": "pass",
       "exitCode": 0,
-      "durationMs": 75,
+      "durationMs": 97,
       "command": [
         "/opt/homebrew/Cellar/node/24.10.0/bin/node",
         "/private/tmp/agent-workbench-archify/archify/bin/archify.mjs",
@@ -118,8 +118,8 @@
         "ok": true,
         "file": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.html",
         "artifact": {
-          "sha256": "2f2a46ea2d99ec62e819ef84ee03eb22ff92c47c5587150d240ee94df01e3e1c",
-          "bytes": 753051
+          "sha256": "79049eb188dd5f5cadbdd9af1c19f88ac1d2dcec467f2e80667e7e95e8ce094e",
+          "bytes": 753064
         },
         "checks": [
           {
@@ -247,13 +247,13 @@
           "issues": []
         },
         "provenance": "current",
-        "deliveryReceiptId": "0d212ff8-ad86-4500-944f-5245246d5281"
+        "deliveryReceiptId": "7966b050-ebf2-42c6-a622-cc34e6719f8a"
       }
     },
     "browser-check": {
       "status": "pass",
       "exitCode": 0,
-      "durationMs": 1784,
+      "durationMs": 1444,
       "command": [
         "/opt/homebrew/Cellar/node/24.10.0/bin/node",
         "/private/tmp/agent-workbench-archify/archify/bin/archify.mjs",
@@ -271,11 +271,11 @@
         "status": "pass",
         "visualReview": "not-requested",
         "provenance": "current",
-        "deliveryReceiptId": "0d212ff8-ad86-4500-944f-5245246d5281",
+        "deliveryReceiptId": "7966b050-ebf2-42c6-a622-cc34e6719f8a",
         "artifact": {
           "path": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.html",
-          "sha256": "2f2a46ea2d99ec62e819ef84ee03eb22ff92c47c5587150d240ee94df01e3e1c",
-          "bytes": 753051
+          "sha256": "79049eb188dd5f5cadbdd9af1c19f88ac1d2dcec467f2e80667e7e95e8ce094e",
+          "bytes": 753064
         },
         "state": {
           "detail": "read",
@@ -993,8 +993,8 @@
     "browserCheckReceipt": "/Users/peke/agent-workbench/docs/diagrams/project-architecture.browser-check.json"
   },
   "visualReview": "not-requested",
-  "finishedAt": "2026-10-05T09:50:40.690Z",
-  "durationMs": 2144,
+  "finishedAt": "2026-10-05T10:19:26.490Z",
+  "durationMs": 1882,
   "update": {
     "status": "unavailable",
     "installedVersion": null,

@@ -2,6 +2,8 @@
 package project
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"embed"
 	"encoding/json"
 	"errors"
@@ -288,4 +290,111 @@ func (p *Project) ReadDiagram(path string) (string, error) {
 	}
 	b, err := p.read(path)
 	return string(b), err
+}
+
+type DocumentContent struct {
+	Path     string `json:"path"`
+	Markdown string `json:"markdown"`
+	Revision string `json:"revision"`
+	Editable bool   `json:"editable"`
+}
+
+var ErrConflict = errors.New("文件已被其他操作修改，草稿已保留；请核对最新原文后再保存")
+var ErrReadOnly = errors.New("文件属于只读区域，不能从网页保存")
+
+func revisionOf(text string) string { return fmt.Sprintf("%x", sha256.Sum256([]byte(text))) }
+func (p *Project) editable(path string) bool {
+	zones := []string{"docs/reviews/discussion"}
+	if cfg, err := p.config(); err == nil {
+		if raw, ok := cfg["readonly_zones"].(string); ok {
+			zones = append(zones, strings.Split(raw, ",")...)
+		}
+	}
+	for _, zone := range zones {
+		zone = strings.Trim(strings.TrimSpace(zone), "/")
+		if zone != "" && (path == zone || strings.HasPrefix(path, zone+"/")) {
+			return false
+		}
+		// 以文件系统身份识别目录别名，覆盖 macOS 的大小写与规范化路径。
+		if zoneInfo, err := p.safeStat(zone); zone != "" && err == nil {
+			parts := strings.Split(path, "/")
+			for i := range parts {
+				if ancestor, e := p.safeStat(strings.Join(parts[:i+1], "/")); e == nil && os.SameFile(zoneInfo, ancestor) {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// DocumentState 返回正文及用于检测外部改动的版本。
+func (p *Project) DocumentState(path string) (DocumentContent, error) {
+	body, err := p.ReadDocument(path)
+	if err != nil {
+		return DocumentContent{}, err
+	}
+	return DocumentContent{Path: path, Markdown: body, Revision: revisionOf(body), Editable: p.editable(path)}, nil
+}
+
+// SaveDocument 检查读取版本后在同目录替换正文，不自动提交 Git。
+func (p *Project) SaveDocument(path, markdown, revision string) (DocumentContent, error) {
+	if !allowedDocument(path) {
+		return DocumentContent{}, errors.New("无效的 Markdown 路径")
+	}
+	if len(markdown) > MaxDocumentBytes || !utf8.ValidString(markdown) {
+		return DocumentContent{}, errors.New("正文须为有效 UTF-8，且不超过 2 MiB")
+	}
+	if !p.editable(path) {
+		return DocumentContent{}, ErrReadOnly
+	}
+	current, err := p.DocumentState(path)
+	if err != nil {
+		return DocumentContent{}, err
+	}
+	if revision == "" || current.Revision != revision {
+		return DocumentContent{}, ErrConflict
+	}
+	info, err := p.safeStat(path)
+	if err != nil {
+		return DocumentContent{}, err
+	}
+	dir := filepath.ToSlash(filepath.Dir(path))
+	parent, err := p.root.OpenRoot(dir)
+	if err != nil {
+		return DocumentContent{}, err
+	}
+	defer parent.Close()
+	temp := ".workbench-" + rand.Text() + ".tmp"
+	f, err := parent.OpenFile(temp, os.O_WRONLY|os.O_CREATE|os.O_EXCL, info.Mode().Perm())
+	if err != nil {
+		return DocumentContent{}, err
+	}
+	defer parent.Remove(temp)
+	if err = f.Chmod(info.Mode().Perm()); err != nil {
+		f.Close()
+		return DocumentContent{}, err
+	}
+	if _, err = f.WriteString(markdown); err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err != nil {
+		return DocumentContent{}, err
+	}
+	if closeErr != nil {
+		return DocumentContent{}, closeErr
+	}
+	// 保存准备期间再次核对外部编辑；不同进程仍需通过 Git 和人工 diff 协作。
+	latest, err := p.DocumentState(path)
+	if err != nil {
+		return DocumentContent{}, err
+	}
+	if latest.Revision != revision {
+		return DocumentContent{}, ErrConflict
+	}
+	if err = parent.Rename(temp, filepath.Base(path)); err != nil {
+		return DocumentContent{}, err
+	}
+	return DocumentContent{Path: path, Markdown: markdown, Revision: revisionOf(markdown), Editable: true}, nil
 }
