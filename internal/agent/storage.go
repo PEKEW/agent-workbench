@@ -213,3 +213,30 @@ func (m *Manager) Events(id string, after int) ([]Event, error) {
 	}
 	return m.readEvents(id, after, 1000)
 }
+
+// canRecreateEmptyLocked 只允许完整日志证明从未收到输入的会话重建原生连接。
+// 不依赖最近事件缓存：旧输入即使已超过 1000 条仍禁止替换 thread。
+func (m *Manager) canRecreateEmptyLocked(r *runtimeSession) (bool, error) {
+	if m.closed || r.State == "closed" || r.ActiveInput != nil || r.ActiveTurnID != "" || r.LastTurnStatus != "" || len(r.Queue) != 0 {
+		return false, nil
+	}
+	after := 0
+	for {
+		events, err := m.readEvents(r.ID, after, 1000)
+		if err != nil {
+			return false, err
+		}
+		for _, event := range events {
+			if event.Sequence != after+1 {
+				return false, nil
+			}
+			after = event.Sequence
+			if event.Method == "workbench/inputAccepted" || strings.HasPrefix(event.Method, "turn/") || strings.HasPrefix(event.Method, "item/") {
+				return false, nil
+			}
+		}
+		if len(events) < 1000 {
+			return after > 0 && after == r.Sequence, nil
+		}
+	}
+}

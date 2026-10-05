@@ -46,6 +46,24 @@ func TestInstalledCodexHandshake(t *testing.T) {
 	if s.ThreadID == "" || s.State != "idle" {
 		t.Fatal("real session not connected")
 	}
+	m.Close()
+	reopenedRoot, err := os.OpenRoot(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewManager(dir, reopenedRoot, CodexCommand(binary))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	restoredSession, err := restored.Resume(ctx, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if restoredSession.State != "idle" {
+		t.Fatal("empty session not reconnected")
+	}
+	t.Logf("empty session reconnect: previous=%s current=%s", s.ThreadID, restoredSession.ThreadID)
 }
 
 func TestInstalledCodexReadOnlyTurn(t *testing.T) {

@@ -25,3 +25,5 @@ Go 项目入口、文档阅读与 Archify iframe 已实现。关键验证与截�
 
 - 阶段二接入 Codex 新会话、输入队列、中断、原生响应、完整事件日志与显式恢复；HTML 讨论与会话可双向手动转发。
 - 真实 CLI 0.160.0 握手及只读 shell 回合通过；浏览器协议路由、原 HTML 回归与前端并发测试通过。详细证据见 `docs/reviews/codex-access.md`。
+
+- 修复空会话恢复：真实 CLI 已复现并修复缺失 rollout；空会话重建、有输入时禁止替换与完整日志回归通过，用户会话已重连。详细证据见 docs/reviews/empty-session-resume.md。若无法可靠判定是否提交过输入则保留原错误，不重建。

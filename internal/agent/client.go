@@ -13,6 +13,13 @@ import (
 	"sync"
 )
 
+type nativeRPCError struct {
+	Code    int
+	Message string
+}
+
+func (e *nativeRPCError) Error() string { return fmt.Sprintf("Codex %d：%s", e.Code, e.Message) }
+
 type rpcResult struct {
 	value json.RawMessage
 	err   error
@@ -86,7 +93,7 @@ func startClient(cmd *exec.Cmd, onEvent func(string, json.RawMessage, json.RawMe
 			if waiter != nil {
 				result := rpcResult{value: m.Result}
 				if m.Error != nil {
-					result.err = fmt.Errorf("Codex %d：%s", m.Error.Code, m.Error.Message)
+					result.err = &nativeRPCError{Code: m.Error.Code, Message: m.Error.Message}
 				}
 				waiter <- result
 			}

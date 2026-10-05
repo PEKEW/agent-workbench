@@ -210,6 +210,20 @@ func (m *Manager) start(ctx context.Context, r *runtimeSession, resume bool) (Se
 	if err == nil {
 		value, err = c.Call(requestContext, method, params)
 	}
+	previousThread := ""
+	var rpcErr *nativeRPCError
+	if resume && errors.As(err, &rpcErr) && rpcErr.Code == -32600 && rpcErr.Message == "no rollout found for thread id "+r.ThreadID {
+		m.mu.Lock()
+		empty, checkErr := m.canRecreateEmptyLocked(r)
+		m.mu.Unlock()
+		if checkErr != nil {
+			err = checkErr
+		} else if empty {
+			previousThread = r.ThreadID
+			delete(params, "threadId")
+			value, err = c.Call(requestContext, "thread/start", params)
+		}
+	}
 	var native struct {
 		Thread struct {
 			ID     string `json:"id"`
@@ -259,6 +273,12 @@ func (m *Manager) start(ctx context.Context, r *runtimeSession, resume bool) (Se
 		r.LastError = "原生会话仍显示活动状态，不能在此状态发送新回合"
 	} else {
 		r.LastError = ""
+	}
+	if previousThread != "" {
+		change, _ := json.Marshal(map[string]string{"previousThreadId": previousThread, "threadId": r.ThreadID, "reason": "空会话尚无可恢复历史，已重新连接；没有重发任务"})
+		if err = m.recordLocked(r, "workbench/emptySessionRecreated", nil, change); err != nil {
+			return Session{}, err
+		}
 	}
 	if err = m.recordLocked(r, "workbench/sessionConnected", nil, value); err != nil {
 		return Session{}, err

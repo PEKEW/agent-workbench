@@ -148,6 +148,7 @@ function eventSummary(event){
   if(event.method==='turn/completed')return {title:'回合结束 · '+({completed:'已完成',failed:'失败',interrupted:'已中断'}[params.turn?.status]||params.turn?.status||''),body:params.turn?.error?JSON.stringify(params.turn.error):''};
   if(event.method==='workbench/runtimeDiagnostic')return {title:'运行时诊断',body:params.text||''};
   if(event.method==='workbench/runtimeExited')return {title:'原生进程退出',body:params.error||''};
+  if(event.method==='workbench/emptySessionRecreated')return {title:'空会话已重新连接',body:`${params.reason}\n原 thread：${params.previousThreadId}\n新 thread：${params.threadId}`};
   return {title:{'workbench/sessionConnected':'Codex 会话已连接','workbench/requestAnswerSubmitted':'已提交原生请求回应','workbench/protocolError':'原生接口出错'}[event.method]||event.method,body:''};
 }
 function renderAgentEvents(){

@@ -44,6 +44,14 @@ func TestRuntimeHelper(t *testing.T) {
 			send(map[string]any{"id": id, "result": map[string]any{"userAgent": "test-runtime"}})
 		case "initialized":
 		case "thread/start", "thread/resume":
+			if method == "thread/resume" && os.Getenv("AWB_RESUME_OTHER_ERROR") == "1" {
+				send(map[string]any{"id": id, "error": map[string]any{"code": -32600, "message": "native configuration unavailable"}})
+				continue
+			}
+			if method == "thread/resume" && os.Getenv("AWB_RESUME_MISSING") == "1" {
+				send(map[string]any{"id": id, "error": map[string]any{"code": -32600, "message": "no rollout found for thread id " + params["threadId"].(string)}})
+				continue
+			}
 			send(map[string]any{"id": id, "result": map[string]any{"thread": map[string]any{"id": threadID}, "model": "test-native", "sandbox": map[string]any{"type": "workspaceWrite"}, "approvalPolicy": "on-request", "approvalsReviewer": "user", "cwd": params["cwd"]}})
 		case "turn/start":
 			count++

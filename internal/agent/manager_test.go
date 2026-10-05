@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -227,5 +228,131 @@ func TestSecretQuestionAnswersAreNotPersistedInLogs(t *testing.T) {
 		if strings.Contains(string(event.Params), "do-not-log-this-secret") {
 			t.Fatal("secret answer persisted in event log")
 		}
+	}
+}
+
+func TestEmptySessionReconnectsWhenRolloutMissing(t *testing.T) {
+	m, _ := testManager(t)
+	m.factory = func() *exec.Cmd {
+		cmd := helperCommand()
+		cmd.Env = append(cmd.Env, "AWB_RESUME_MISSING=1")
+		return cmd
+	}
+	ctx := context.Background()
+	session, err := m.Create(ctx, StartOptions{Name: "empty"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = m.CloseSession(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	reconnected, err := m.Resume(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconnected.ID != session.ID || reconnected.State != "idle" {
+		t.Fatal("empty workbench session not reconnected")
+	}
+	events, err := m.Events(session.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range events {
+		if event.Method == "workbench/emptySessionRecreated" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("native thread replacement not disclosed in log")
+	}
+}
+
+func TestMissingRolloutDoesNotReplaceSessionWithInput(t *testing.T) {
+	m, _ := testManager(t)
+	m.factory = func() *exec.Cmd {
+		cmd := helperCommand()
+		cmd.Env = append(cmd.Env, "AWB_RESUME_MISSING=1")
+		return cmd
+	}
+	ctx := context.Background()
+	session, err := m.Create(ctx, StartOptions{Name: "used"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Send(ctx, session.ID, "wait"); err != nil {
+		t.Fatal(err)
+	}
+	if err = m.CloseSession(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Resume(ctx, session.ID); err == nil {
+		t.Fatal("lost history silently replaced")
+	}
+	saved, _ := m.Get(session.ID)
+	if saved.ThreadID != session.ThreadID || saved.State != "disconnected" {
+		t.Fatal("failed resume altered original thread")
+	}
+}
+
+func TestMissingRolloutKeepsLegacyInputOutsideRecentCache(t *testing.T) {
+	m, dir := testManager(t)
+	factory := func() *exec.Cmd {
+		cmd := helperCommand()
+		cmd.Env = append(cmd.Env, "AWB_RESUME_MISSING=1")
+		return cmd
+	}
+	m.factory = factory
+	ctx := context.Background()
+	session, err := m.Create(ctx, StartOptions{Name: "legacy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = m.CloseSession(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	// 旧版状态没有回合标记，但磁盘最早仍存在已接收输入的证据。
+	m.mu.Lock()
+	r := m.sessions[session.ID]
+	err = m.recordLocked(r, "workbench/inputAccepted", nil, json.RawMessage(`{"input":{"text":"previous submission"}}`))
+	for i := 0; err == nil && i < 1005; i++ {
+		err = m.recordLocked(r, "fixture/diagnostic", nil, nil)
+	}
+	m.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Close()
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	restored, err := NewManager(dir, root, factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer restored.Close()
+	if _, err = restored.Resume(ctx, session.ID); err == nil {
+		t.Fatal("old input beyond recent cache silently lost")
+	}
+}
+
+func TestEmptySessionDoesNotReplaceOnOtherNativeError(t *testing.T) {
+	m, _ := testManager(t)
+	m.factory = func() *exec.Cmd {
+		cmd := helperCommand()
+		cmd.Env = append(cmd.Env, "AWB_RESUME_OTHER_ERROR=1")
+		return cmd
+	}
+	ctx := context.Background()
+	session, err := m.Create(ctx, StartOptions{Name: "empty"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = m.CloseSession(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Resume(ctx, session.ID); err == nil || !strings.Contains(err.Error(), "configuration unavailable") {
+		t.Fatal("unrelated native error hidden", err)
 	}
 }
