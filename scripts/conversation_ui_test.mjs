@@ -1,0 +1,12 @@
+import fs from 'node:fs';import vm from 'node:vm';import assert from 'node:assert/strict';
+const source=fs.readFileSync(new URL('../internal/server/web/agent-timeline.js',import.meta.url),'utf8');
+const context=vm.createContext({});vm.runInContext(source,context);
+const event=(sequence,method,params)=>({sequence,method,params,createdAt:'2026-10-05T12:00:00Z'});
+const events=[event(1,'workbench/inputAccepted',{input:{id:'C1',text:'task\n\n--- 选定文档 D ---\nbody'},queued:false}),event(2,'turn/started',{threadId:'T',turn:{id:'R1'}}),event(3,'item/completed',{threadId:'T',turnId:'R1',item:{id:'C1',type:'userMessage',content:[{text:'task'}]}}),event(4,'item/agentMessage/delta',{threadId:'T',turnId:'R1',itemId:'A1',delta:'hello'}),event(5,'item/completed',{threadId:'T',turnId:'R1',item:{id:'A1',type:'agentMessage',text:'**hello**'}}),event(6,'item/completed',{threadId:'T',turnId:'R1',item:{id:'cmd',type:'commandExecution',command:'ls'}}),event(7,'item/completed',{threadId:'foreign',turnId:'R1',item:{id:'wrong',type:'agentMessage',text:'wrong'}})];
+for(let i=0;i<3100;i++)events.push(event(8+i,'item/completed',{threadId:'T',turnId:'R1',item:{id:'cmd'+i,type:'commandExecution',command:'ls'}}));
+context.events=events;context.thread='T';const result=vm.runInContext('projectAgentTimeline(events,thread,false)',context);
+assert.equal(result.conversation.length,2,'execution displaced conversation or user/live messages duplicated');
+assert.equal(result.conversation[1].body,'**hello**');assert.equal(result.conversation[0].turnID,'R1');assert.equal(result.execution.length,100);
+context.events=[event(1,'item/agentMessage/delta',{threadId:'T',turnId:'R',itemId:'A',delta:'first'}),event(2,'item/agentMessage/delta',{threadId:'T',turnId:'R',itemId:'A',delta:' second'})];
+const live=vm.runInContext('projectAgentTimeline(events,thread,false)',context);assert.equal(live.conversation.length,1);assert.equal(live.conversation[0].body,'first second');
+console.log('PASS isolated timelines, input/live deduplication, per-timeline limits, foreign-thread filtering');

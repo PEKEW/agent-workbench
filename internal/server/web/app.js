@@ -17,7 +17,7 @@ let editable = false;
 let editing = false;
 let saving = false;
 const escapeHTML = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
-marked.use({renderer: {html: item => escapeHTML(item.text)}});
+
 
 function showError(error) {
   $('error').textContent = error ? String(error.message || error) : '';
@@ -96,26 +96,13 @@ async function showProject(info) {
   await loadAgentProject();
 }
 
+function renderProjectMarkdown(container,text,basePath){
+ renderSafeMarkdown(container,text,{basePath,paths:entries().map(item=>item.path),onNavigate:path=>{const target=entries().find(item=>item.path===path);if(target&&(!agentMode||switchWorkbench('documents')))loadEntry(target);}});
+}
 function renderMarkdown() {
   $('raw-button').setAttribute('aria-pressed',String(raw));
   $('raw-content').hidden=!raw;$('article').hidden=raw;$('raw-content').textContent=markdown;
-  $('article').innerHTML=DOMPurify.sanitize(marked.parse(markdown,{gfm:true}),{
-    ALLOWED_TAGS:['p','h1','h2','h3','h4','h5','h6','blockquote','ul','ol','li','pre','code','strong','em','del','a','hr','br','table','thead','tbody','tr','th','td','sup','sub','details','summary'],
-    ALLOWED_ATTR:['href','title','start','align'],ALLOW_DATA_ATTR:false
-  });
-  for(const heading of $('article').querySelectorAll('h1,h2,h3,h4,h5,h6')) heading.id=heading.textContent.trim().toLowerCase().replace(/\s+/g,'-').replace(/[^\p{L}\p{N}_-]/gu,'');
-  for(const link of $('article').querySelectorAll('a[href]')) {
-    const href=link.getAttribute('href');
-    if(/^https?:\/\//i.test(href)){link.target='_blank';link.rel='noopener noreferrer';continue;}
-    if(href.startsWith('#')){link.addEventListener('click',event=>{event.preventDefault();document.getElementById(decodeURIComponent(href.slice(1)))?.scrollIntoView();});continue;}
-    try {
-      const destination=new URL(href, 'https://project.invalid/'+selected);
-      const path=decodeURIComponent(destination.pathname.slice(1));
-      const target=destination.origin==='https://project.invalid'&&entries().find(d=>d.path===path);
-      if(target){link.addEventListener('click',event=>{event.preventDefault();loadEntry(target);});}
-      else {link.removeAttribute('href');link.title='此链接不在当前阅读范围内';}
-    } catch {link.removeAttribute('href');}
-  }
+  renderProjectMarkdown($('article'),markdown,selected);
 }
 async function loadEntry(item) {
   if(!leaveEditor())return;

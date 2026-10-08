@@ -25,6 +25,7 @@ func TestRuntimeHelper(t *testing.T) {
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 4096), 3*1024*1024)
 	threadID := "native-thread"
+	var cwd any
 	turnID := ""
 	count := 0
 	complete := func(id, status string) {
@@ -42,8 +43,15 @@ func TestRuntimeHelper(t *testing.T) {
 		switch method {
 		case "initialize":
 			send(map[string]any{"id": id, "result": map[string]any{"userAgent": "test-runtime"}})
+		case "hooks/list":
+			send(map[string]any{"id": id, "result": map[string]any{"data": []any{map[string]any{"hooks": []any{map[string]any{"key": "mem-hook", "currentHash": "H", "pluginId": "claude-mem@claude-mem-local", "command": "memory", "enabled": true, "trustStatus": "untrusted"}}, "warnings": []string{}}}}})
+		case "config/read":
+			send(map[string]any{"id": id, "result": map[string]any{"layers": []any{map[string]any{"name": map[string]any{"type": "user"}, "version": "V"}}}})
+		case "config/batchWrite":
+			send(map[string]any{"id": id, "result": map[string]any{"status": "ok"}})
 		case "initialized":
 		case "thread/start", "thread/resume":
+			cwd = params["cwd"]
 			if method == "thread/resume" && os.Getenv("AWB_RESUME_OTHER_ERROR") == "1" {
 				send(map[string]any{"id": id, "error": map[string]any{"code": -32600, "message": "native configuration unavailable"}})
 				continue
@@ -52,20 +60,23 @@ func TestRuntimeHelper(t *testing.T) {
 				send(map[string]any{"id": id, "error": map[string]any{"code": -32600, "message": "no rollout found for thread id " + params["threadId"].(string)}})
 				continue
 			}
-			send(map[string]any{"id": id, "result": map[string]any{"thread": map[string]any{"id": threadID}, "model": "test-native", "sandbox": map[string]any{"type": "workspaceWrite"}, "approvalPolicy": "on-request", "approvalsReviewer": "user", "cwd": params["cwd"]}})
+			send(map[string]any{"id": id, "result": map[string]any{"thread": map[string]any{"id": threadID}, "model": "test-native", "sandbox": map[string]any{"type": "workspaceWrite"}, "approvalPolicy": "on-request", "approvalsReviewer": "user", "cwd": cwd}})
 		case "turn/start":
 			count++
 			turnID = time.Now().Format("150405.000000000")
 			thisTurn := turnID
 			input, _ := params["input"].([]any)
 			text := input[0].(map[string]any)["text"].(string)
+			if text == "uncertain" {
+				continue
+			}
 			send(map[string]any{"method": "turn/started", "params": map[string]any{"threadId": threadID, "turn": map[string]any{"id": thisTurn, "status": "inProgress"}}})
 			send(map[string]any{"id": id, "result": map[string]any{"turn": map[string]any{"id": thisTurn, "status": "inProgress"}}})
 			if text == "wait" {
 				continue
 			}
 			if text == "approve" {
-				send(map[string]any{"id": "approval-1", "method": "item/commandExecution/requestApproval", "params": map[string]any{"threadId": threadID, "turnId": thisTurn, "itemId": "command-1", "command": "echo approved", "cwd": params["cwd"]}})
+				send(map[string]any{"id": "approval-1", "method": "item/commandExecution/requestApproval", "params": map[string]any{"threadId": threadID, "turnId": thisTurn, "itemId": "command-1", "command": "echo approved", "cwd": cwd}})
 				continue
 			}
 			status := "completed"

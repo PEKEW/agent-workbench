@@ -35,11 +35,14 @@ function renderThreads() {
   $('pending-count').textContent=`${all.filter(t=>t.status==='open').length} 条待处理`;
   const status=$('status-filter').value;
   const list=all.filter(t=>(threadFilter==='all'||t.kind===threadFilter)&&(status==='all'||t.status===status));
+  visibleDiscussionIDs=list.map(t=>t.id);updateBatchSelection();
   $('thread-list').innerHTML=list.length?list.map(t=>{
     const draft=replyDrafts.get(t.id),warning=locateAnchor(t.anchor).reason;
     const overdue=t.dueDate&&t.dueDate<new Date().toLocaleDateString('sv-SE')&&t.status==='open';
-    return `<section class="thread ${t.status==='resolved'?'resolved':''}" data-thread="${esc(t.id)}"><div class="thread-top"><span>${t.kind==='memo'?'◷ 备忘':'◌ 批注'} · ${t.messages.length} 条消息</span><span>${t.status==='resolved'?'✓ 已解决':'待处理'}</span></div>${t.anchor?`<button class="thread-quote" data-locate="${esc(t.id)}">“${esc(t.anchor.quote)}”</button>`:''}${warning?`<p class="anchor-warning">${esc(warning)}</p>`:''}${t.dueDate?`<p class="due">${esc(t.dueDate)}${overdue?' · 已过期':''}</p>`:''}${t.messages.map(m=>`<div class="message"><div class="message-meta"><strong>${esc(m.author)}</strong><span>${m.role==='agent'?'AGENT':'用户'}</span>${m.intent!=='comment'?`<span class="${m.intent}">${m.intent==='rebuttal'?'Rebuttal · 反驳':'结论'}</span>`:''}</div><p class="message-body">${esc(m.body)}</p><time>${esc(new Date(m.createdAt).toLocaleString('zh-CN'))}</time></div>`).join('')}<div class="thread-bottom"><button data-reply="${esc(t.id)}">↳ 回复</button><button data-resolve="${esc(t.id)}">${t.status==='resolved'?'重新打开':'✓ 标记解决'}</button><button data-delete="${esc(t.id)}">删除</button><button data-forward="${esc(t.id)}">转发给 Agent</button></div><div class="reply-form" data-form="${esc(t.id)}" ${draft?'':'hidden'}><textarea aria-label="回复内容" data-draft="${esc(t.id)}" placeholder="补充意见、证据或修改建议…">${esc(draft?.body||'')}</textarea><div class="reply-actions"><select aria-label="回复类型"><option value="comment">普通回复</option><option value="rebuttal" ${draft?.intent==='rebuttal'?'selected':''}>Rebuttal · 反驳</option><option value="decision" ${draft?.intent==='decision'?'selected':''}>结论</option></select><button class="small-button save-button" data-send="${esc(t.id)}">发送回复</button></div></div></section>`;
+    return `<section class="thread ${t.status==='resolved'?'resolved':''}" data-thread="${esc(t.id)}"><div class="thread-top"><label class="thread-select"><input type="checkbox" data-select-thread="${esc(t.id)}" aria-label="选择这条讨论" ${selectedDiscussionIDs.has(t.id)?'checked':''} ${batchBusy?'disabled':''}><span>${t.kind==='memo'?'◷ 备忘':'◌ 批注'} · ${t.messages.length} 条消息</span></label><span>${t.status==='resolved'?'✓ 已解决':'待处理'}</span></div>${t.anchor?`<button class="thread-quote" data-locate="${esc(t.id)}">“${esc(t.anchor.quote)}”</button>`:''}${warning?`<p class="anchor-warning">${esc(warning)}</p>`:''}${t.dueDate?`<p class="due">${esc(t.dueDate)}${overdue?' · 已过期':''}</p>`:''}${t.messages.map(m=>`<div class="message"><div class="message-meta"><strong>${esc(m.author)}</strong><span>${m.role==='agent'?'AGENT':'用户'}</span>${m.intent!=='comment'?`<span class="${m.intent}">${m.intent==='rebuttal'?'Rebuttal · 反驳':'结论'}</span>`:''}</div><div class="message-body markdown-message" data-message-id="${esc(m.id)}"></div><time>${esc(new Date(m.createdAt).toLocaleString('zh-CN'))}</time></div>`).join('')}<div class="thread-agent-status" data-discussion-sessions="${esc(t.id)}"></div><div class="thread-bottom"><button data-reply="${esc(t.id)}">↳ 回复</button><button data-resolve="${esc(t.id)}">${t.status==='resolved'?'重新打开':'✓ 标记解决'}</button><button data-delete="${esc(t.id)}">删除</button><button data-forward="${esc(t.id)}">让 Agent 参与讨论</button></div><div class="reply-form" data-form="${esc(t.id)}" ${draft?'':'hidden'}><textarea aria-label="回复内容" data-draft="${esc(t.id)}" placeholder="补充意见、证据或修改建议…">${esc(draft?.body||'')}</textarea><div class="reply-actions"><select aria-label="回复类型"><option value="comment">普通回复</option><option value="rebuttal" ${draft?.intent==='rebuttal'?'selected':''}>Rebuttal · 反驳</option><option value="decision" ${draft?.intent==='decision'?'selected':''}>结论</option></select><button class="small-button save-button" data-send="${esc(t.id)}">发送回复</button></div></div></section>`;
   }).join(''):`<p class="empty-list">${selectedKind==='diagram'?'交互图在中间操作；选择文档可添加讨论。':collaboration?'选中原文添加批注，或留下整篇意见与备忘。':'讨论尚未载入，请刷新重试。'}</p>`;
+  for(const element of $('thread-list').querySelectorAll('[data-message-id]')){const message=all.flatMap(t=>t.messages).find(m=>m.id===element.dataset.messageId);if(message)renderProjectMarkdown(element,message.body,selected);}
+  if(typeof renderAgentStatus==='function')renderAgentStatus();
   if(discussionBusy)for(const control of $('thread-list').querySelectorAll('button'))control.disabled=true;
 }
 async function persistThreads(next) {
@@ -107,6 +110,7 @@ document.addEventListener('pointerdown',event=>{if(!event.target.closest('#artic
 function updateThreadFilters(){for(const button of document.querySelectorAll('[data-thread-filter]'))button.setAttribute('aria-pressed',String(button.dataset.threadFilter===threadFilter));}
 for(const button of document.querySelectorAll('[data-thread-filter]'))button.onclick=()=>{threadFilter=button.dataset.threadFilter;updateThreadFilters();renderThreads();};
 $('status-filter').onchange=renderThreads;
+$('thread-list').addEventListener('change',event=>{if(event.target.dataset.selectThread){const id=event.target.dataset.selectThread;if(event.target.checked)selectedDiscussionIDs.add(id);else selectedDiscussionIDs.delete(id);updateBatchSelection();}});
 $('thread-list').addEventListener('input',event=>{
   const form=event.target.closest('[data-form]');if(form)replyDrafts.set(form.dataset.form,{body:form.querySelector('textarea').value,intent:form.querySelector('select').value});
 });
@@ -132,56 +136,6 @@ $('thread-list').addEventListener('click',async event=>{
     showError(null);
   }catch(error){showError(error);}
 });
-
-function downloadJSON(value){const url=URL.createObjectURL(new Blob([JSON.stringify(value,null,2)],{type:'application/json'}));const link=document.createElement('a');link.href=url;link.download='agent-workbench-handoff.json';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),10000);}
-$('export-discussion').onclick=async()=>{
-  if(dirty()){showError(new Error('请先保存或取消原文编辑，再导出项目的最新正文'));return;}
-  $('export-discussion').disabled=true;
-  try{const bundle=await api('collaboration?export=1');bundle.exportedAt=new Date().toISOString();downloadJSON(bundle);$('discussion-status').textContent='已导出正文、引用、批注与完整讨论';}
-  catch(error){showError(error);}finally{$('export-discussion').disabled=false;}
-};
-function validateMessage(m){if(!m||typeof m.id!=='string'||!m.id.trim()||typeof m.author!=='string'||!m.author.trim()||!['human','agent'].includes(m.role)||!['comment','rebuttal','decision'].includes(m.intent)||typeof m.body!=='string'||!m.body.trim()||!Number.isFinite(Date.parse(m.createdAt)))throw new Error('消息格式无效');return {id:m.id,author:m.author,role:m.role,intent:m.intent,body:m.body,createdAt:m.createdAt};}
-function normalizeThread(t){if(!t||typeof t.id!=='string'||!t.id.trim()||!collaboration.documents.some(d=>d.id===t.documentId)||!['comment','memo'].includes(t.kind)||!['open','resolved'].includes(t.status)||!Array.isArray(t.messages)||!t.messages.length)throw new Error('讨论格式或文档引用无效');const anchor=t.anchor==null?null:{quote:t.anchor.quote,before:t.anchor.before||'',after:t.anchor.after||'',revision:t.anchor.revision};return {id:t.id,documentId:t.documentId,kind:t.kind,status:t.status,dueDate:t.dueDate||'',anchor,messages:t.messages.map(validateMessage)};}
-function prepareImport(data){
-  if(!collaboration)throw new Error('请先载入项目讨论');
-  const full=data?.format==='agent-docs-workspace';
-  if(!data||data.version!==1||(!full&&data.format!=='agent-docs-feedback')||(full?data.id:data.workspaceId)!==collaboration.id)throw new Error('交接文件不属于当前工作区，或格式版本不匹配');
-  for(const key of ['threads','replies','changes'])if(data[key]!==undefined&&!Array.isArray(data[key]))throw new Error(key+' 必须是数组');
-  if(full&&!Array.isArray(data.threads))throw new Error('交接包缺少讨论');
-  const next=clone(collaboration.threads),threadMap=new Map(next.map(t=>[t.id,t]));
-  const messages=new Map(next.flatMap(t=>t.messages.map(m=>[m.id,{message:m,threadId:t.id}])));
-  let added=0,skipped=0,proposals=0;
-  function mergeMessage(m,target){const old=messages.get(m.id);if(old){if(old.threadId!==target.id||JSON.stringify(old.message)!==JSON.stringify(m))throw new Error('消息 ID 已存在且内容不同');skipped++;return;}target.messages.push(m);messages.set(m.id,{message:m,threadId:target.id});added++;}
-  for(const rawThread of data.threads||[]){
-    const incoming=normalizeThread(rawThread),old=threadMap.get(incoming.id);
-    if(old){if(old.documentId!==incoming.documentId||old.kind!==incoming.kind||JSON.stringify(old.anchor)!==JSON.stringify(incoming.anchor))throw new Error('讨论 ID 已存在且关联不同');for(const m of incoming.messages)mergeMessage(m,old);}
-    else {const target={...incoming,messages:[]};for(const m of incoming.messages)mergeMessage(m,target);next.push(target);threadMap.set(target.id,target);}
-  }
-  for(const reply of data.replies||[]){const target=threadMap.get(reply.threadId);if(!target)throw new Error('回复的 threadId 不存在');mergeMessage(validateMessage(reply),target);}
-  // 正文建议先成为可讨论的证据，避免导入 JSON 隐式覆盖磁盘文件。
-  for(const change of data.changes||[]){
-    if(!change||typeof change.id!=='string'||!change.id.trim()||!collaboration.documents.some(d=>d.id===change.documentId)||typeof change.markdown!=='string'||!Number.isSafeInteger(change.baseRevision)||change.baseRevision<1||typeof change.author!=='string'||!change.author.trim()||change.summary!==undefined&&typeof change.summary!=='string')throw new Error('正文修改建议格式无效');
-    const threadId='proposal-'+change.id,body=`【正文修改建议 · 尚未写入文件】\n基于 rev. ${change.baseRevision}，请核对当前原文后通过编辑器采纳。\n${change.summary||''}\n\n建议正文：\n${change.markdown}`;
-    const prior=threadMap.get(threadId);
-    if(prior){if(prior.documentId!==change.documentId||prior.messages[0].body!==body||prior.messages[0].author!==change.author)throw new Error('修改建议 ID 已存在且内容不同');skipped++;continue;}
-    const target={id:threadId,documentId:change.documentId,kind:'comment',status:'open',dueDate:'',anchor:null,messages:[{id:'proposal-message-'+change.id,author:change.author,role:'agent',intent:'rebuttal',body,createdAt:new Date().toISOString()}]};
-    if(messages.has(target.messages[0].id))throw new Error('修改建议消息 ID 重复');
-    next.push(target);threadMap.set(threadId,target);messages.set(target.messages[0].id,{message:target.messages[0],threadId});proposals++;
-  }
-  return {next,added,skipped,proposals,generation:collaboration.generation};
-}
-$('import-discussion').onclick=()=>$('discussion-file').click();
-$('discussion-file').onchange=async event=>{
-  const file=event.target.files[0];event.target.value='';if(!file)return;
-  try {
-    if(file.size>16*1024*1024)throw new Error('JSON 文件超过 16 MiB');
-    const preview=prepareImport(JSON.parse(await file.text()));
-    openDiscussionDialog('载入讨论与回复',`<p>新增 ${preview.added} 条消息，跳过 ${preview.skipped} 项重复内容，保留 ${preview.proposals} 项正文修改建议。</p><p>讨论将合并到当前项目。正文建议留在讨论中，由你核对后通过“编辑原文”采纳；完整交接包也不会替换项目文件。</p>`,async()=>{
-      if(collaboration.generation!==preview.generation)throw new Error('预览后讨论已变化，请重新载入文件');
-      await persistThreads(preview.next);
-    },'确认载入');
-  }catch(error){showError(error);}
-};
 
 window.addEventListener('beforeunload',event=>{
   const compose=$('discussion-dialog').open&&$('compose-body')?.value.trim();

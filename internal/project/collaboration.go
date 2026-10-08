@@ -19,12 +19,21 @@ const collaborationPath = ".agent-state/collaboration.json"
 var ErrCollaborationConflict = errors.New("讨论已被其他页面修改；请刷新后重试，当前输入仍保留")
 
 type Message struct {
-	ID        string `json:"id"`
-	Author    string `json:"author"`
-	Role      string `json:"role"`
-	Intent    string `json:"intent"`
-	Body      string `json:"body"`
-	CreatedAt string `json:"createdAt"`
+	ID        string         `json:"id"`
+	Author    string         `json:"author"`
+	Role      string         `json:"role"`
+	Intent    string         `json:"intent"`
+	Body      string         `json:"body"`
+	CreatedAt string         `json:"createdAt"`
+	Source    *MessageSource `json:"source,omitempty"`
+}
+
+// MessageSource 保存运行时来源，供自动与手动回写去重。
+type MessageSource struct {
+	SessionID string `json:"sessionId"`
+	ThreadID  string `json:"threadId"`
+	TurnID    string `json:"turnId"`
+	ItemID    string `json:"itemId"`
 }
 type Anchor struct {
 	Quote    string `json:"quote"`
@@ -138,30 +147,6 @@ func (p *Project) Collaboration() (CollaborationState, error) {
 	return state, nil
 }
 
-// ExportCollaboration 补充最新正文，形成兼容原 HTML 的交接包。
-func (p *Project) ExportCollaboration() (CollaborationState, error) {
-	state, err := p.Collaboration()
-	if err != nil {
-		return state, err
-	}
-	size := 0
-	for i := range state.Documents {
-		body, e := p.DocumentState(state.Documents[i].Source)
-		if e != nil {
-			return state, fmt.Errorf("无法导出 %s：%w", state.Documents[i].Source, e)
-		}
-		size += len(body.Markdown)
-		if size > maxCollaborationBytes {
-			return state, errors.New("交接正文超过 16 MiB，请减少项目文档后导出")
-		}
-		if state.Documents[i].ContentRevision != body.Revision {
-			state.Documents[i].Revision++
-		}
-		state.Documents[i].ContentRevision = body.Revision
-		state.Documents[i].Markdown = body.Markdown
-	}
-	return state, nil
-}
 func validText(s string, max int) bool { return utf8.ValidString(s) && len(s) <= max }
 func validID(s string) bool            { return validText(s, 200) && strings.TrimSpace(s) != "" }
 func validateThreads(threads []Thread, known map[string]bool) error {
@@ -185,6 +170,9 @@ func validateThreads(threads []Thread, known map[string]bool) error {
 			}
 		}
 		for _, m := range t.Messages {
+			if source := m.Source; source != nil && (!validID(source.SessionID) || !validID(source.ThreadID) || !validID(source.TurnID) || !validID(source.ItemID)) {
+				return errors.New("消息来源无效")
+			}
 			if !validID(m.ID) || messages[m.ID] || !validText(m.Author, 320) || strings.TrimSpace(m.Author) == "" || m.Role != "human" && m.Role != "agent" || m.Intent != "comment" && m.Intent != "rebuttal" && m.Intent != "decision" || !validText(m.Body, MaxDocumentBytes) || strings.TrimSpace(m.Body) == "" {
 				return errors.New("消息格式或 ID 无效")
 			}

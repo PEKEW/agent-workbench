@@ -251,20 +251,20 @@ func TestCollaborationHTTPPersistenceAuthorizationAndConflict(t *testing.T) {
 	if w := request(t, s, "GET", "/api/collaboration", "", "", ""); w.Code != 403 {
 		t.Fatal("unauthenticated collaboration")
 	}
-	w := request(t, s, "GET", "/api/collaboration?export=1", "", testToken, "")
+	w := request(t, s, "GET", "/api/collaboration", "", testToken, "")
 	var state project.CollaborationState
 	if w.Code != 200 || json.Unmarshal(w.Body.Bytes(), &state) != nil {
 		t.Fatal(w.Body.String())
 	}
-	if len(state.Documents) == 0 || state.Documents[0].Markdown == "" {
-		t.Fatal("export omitted content")
+	if len(state.Documents) == 0 || state.Documents[0].Source == "" {
+		t.Fatal("collaboration omitted document metadata")
 	}
 	payload := `{"generation":1,"threads":[{"id":"t","documentId":"PLAN.md","kind":"comment","status":"open","dueDate":"","anchor":{"quote":"当前","before":"","after":"","revision":1},"messages":[{"id":"m","author":"我","role":"human","intent":"comment","body":"第一条意见","createdAt":"2026-10-05T10:00:00Z"}]}]}`
 	if w = request(t, s, "POST", "/api/collaboration", payload, testToken, "https://example.com"); w.Code != 403 {
 		t.Fatal("external write accepted")
 	}
 	if _, err = os.Stat(filepath.Join(root, ".agent-state")); !os.IsNotExist(err) {
-		t.Fatal("read/export wrote state")
+		t.Fatal("read wrote state")
 	}
 	if w = request(t, s, "POST", "/api/collaboration", payload, testToken, ""); w.Code != 200 {
 		t.Fatal(w.Body.String())

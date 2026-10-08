@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -14,11 +13,18 @@ import (
 )
 
 func (s *Server) registerAgents(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/agents/{id}/discussion", s.createDiscussion)
+	mux.HandleFunc("GET /api/agents/{id}/memory-hooks", s.memoryHooks)
+	mux.HandleFunc("POST /api/agents/{id}/memory-hooks/trust", s.trustMemoryHooks)
+	mux.HandleFunc("GET /api/memory/health", s.memoryHealth)
+	mux.HandleFunc("GET /api/memory/endpoint", s.memoryEndpoint)
 	mux.HandleFunc("GET /api/agents", s.listAgents)
+	mux.HandleFunc("GET /api/authorizations", s.authorizations)
+	mux.HandleFunc("POST /api/authorizations", s.authorizations)
 	mux.HandleFunc("POST /api/agents", s.createAgent)
 	mux.HandleFunc("POST /api/agents/preview", s.previewAgentInput)
 	mux.HandleFunc("GET /api/agents/{id}/events", s.agentEvents)
-	for _, action := range []string{"input", "interrupt", "close", "resume", "queue"} {
+	for _, action := range []string{"input", "interrupt", "close", "resume", "queue", "delete"} {
 		mux.HandleFunc("POST /api/agents/{id}/"+action, s.agentAction)
 	}
 	mux.HandleFunc("POST /api/agents/{id}/requests/{requestId}", s.answerAgentRequest)
@@ -26,6 +32,9 @@ func (s *Server) registerAgents(mux *http.ServeMux) {
 func (s *Server) manager(create bool) (*agent.Manager, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.closing {
+		return nil, errors.New("工作台已关闭")
+	}
 	if s.project == nil {
 		return nil, errors.New("请先打开项目")
 	}
@@ -50,6 +59,9 @@ func (s *Server) manager(create bool) (*agent.Manager, error) {
 		return nil, err
 	}
 	s.agents = manager
+	s.syncStop = make(chan struct{})
+	s.syncDone = make(chan struct{})
+	go s.discussionWorker(manager, s.syncStop, s.syncDone)
 	return manager, nil
 }
 func decodeAgent(w http.ResponseWriter, r *http.Request, input any) bool {
@@ -138,14 +150,51 @@ func (s *Server) agentAction(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	action := r.URL.Path[strings.LastIndex(r.URL.Path, "/")+1:]
 	switch action {
+	case "delete":
+		var cleanup struct {
+			AbandonUnknown bool `json:"abandonUnknown"`
+		}
+		if !decodeAgent(w, r, &cleanup) {
+			return
+		}
+		if err = m.DeleteSessionWithOptions(id, cleanup.AbandonUnknown); err != nil {
+			fail(w, 409, err.Error())
+			return
+		}
+		respond(w, 200, map[string]bool{"deleted": true})
+		return
 	case "input":
 		var input struct {
-			Text string `json:"text"`
+			Text     string        `json:"text"`
+			Preview  *PreviewInput `json:"preview,omitempty"`
+			Checksum string        `json:"checksum,omitempty"`
 		}
 		if !decodeAgent(w, r, &input) {
 			return
 		}
-		result, e := m.Send(r.Context(), id, input.Text)
+		var result agent.SendResult
+		var e error
+		if input.Preview != nil {
+			if input.Preview.SessionID != id {
+				fail(w, 409, "预览不属于此会话")
+				return
+			}
+			s.mu.RLock()
+			preview, err := s.buildPreviewLocked(*input.Preview, m)
+			if err != nil || preview.Checksum != input.Checksum {
+				s.mu.RUnlock()
+				fail(w, 409, "预览材料已变化，请重新预览；输入已保留")
+				return
+			}
+			if preview.Context != nil {
+				result, e = m.SendDiscussion(r.Context(), id, preview.Text, *preview.Context, preview.Baseline)
+			} else {
+				result, e = m.Send(r.Context(), id, preview.Text)
+			}
+			s.mu.RUnlock()
+		} else {
+			result, e = m.Send(r.Context(), id, input.Text)
+		}
 		if e != nil {
 			fail(w, 409, e.Error())
 			return
@@ -206,72 +255,51 @@ func (s *Server) answerAgentRequest(w http.ResponseWriter, r *http.Request) {
 	respond(w, 200, map[string]bool{"answered": true})
 }
 func (s *Server) previewAgentInput(w http.ResponseWriter, r *http.Request) {
-	var input struct {
-		Text      string   `json:"text"`
-		Documents []string `json:"documents"`
-		ThreadID  string   `json:"threadId"`
-	}
+	var input PreviewInput
 	if !decodeAgent(w, r, &input) {
 		return
 	}
-	if strings.TrimSpace(input.Text) == "" || len(input.Documents) > 20 {
-		fail(w, 400, "请输入任务，选定文档最多 20 份")
-		return
+	var m *agent.Manager
+	var err error
+	if input.SessionID != "" {
+		m, err = s.manager(false)
+		if err != nil || m == nil {
+			fail(w, 400, "会话不存在")
+			return
+		}
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	if s.project == nil {
-		fail(w, 409, "请先打开项目")
+	preview, err := s.buildPreviewLocked(input, m)
+	if err != nil {
+		fail(w, 400, err.Error())
 		return
 	}
-	var prompt strings.Builder
-	prompt.WriteString(input.Text)
-	seen := map[string]bool{}
-	for _, path := range input.Documents {
-		if seen[path] {
-			continue
-		}
-		seen[path] = true
-		doc, err := s.project.DocumentState(path)
-		if err != nil {
-			fail(w, 400, err.Error())
-			return
-		}
-		fmt.Fprintf(&prompt, "\n\n--- 选定文档 %s · SHA-256 %s ---\n%s", path, doc.Revision, doc.Markdown)
-		if prompt.Len() > 2*1024*1024 {
-			fail(w, 400, "选定上下文超过 2 MiB")
-			return
-		}
-	}
-	if input.ThreadID != "" {
-		collaboration, err := s.project.Collaboration()
-		if err != nil {
-			fail(w, 400, err.Error())
-			return
-		}
-		found := false
-		for _, thread := range collaboration.Threads {
-			if thread.ID != input.ThreadID {
-				continue
-			}
-			found = true
-			fmt.Fprintf(&prompt, "\n\n--- 手动转发讨论 %s · 文档 %s ---\n", thread.ID, thread.DocumentID)
-			if thread.Anchor != nil {
-				fmt.Fprintf(&prompt, "引用（rev. %d）：%s\n", thread.Anchor.Revision, thread.Anchor.Quote)
-			}
-			for _, message := range thread.Messages {
-				fmt.Fprintf(&prompt, "\n[%s · %s · %s · %s]\n%s\n", message.Author, message.Role, message.Intent, message.ID, message.Body)
-			}
-			break
-		}
-		if !found {
-			fail(w, 400, "讨论不存在")
-			return
-		}
-	}
-	if prompt.Len() > 2*1024*1024 {
-		fail(w, 400, "输入与上下文超过 2 MiB")
+	respond(w, 200, preview)
+}
+
+func (s *Server) authorizations(w http.ResponseWriter, r *http.Request) {
+	m, err := s.manager(r.Method == "POST")
+	if err != nil {
+		fail(w, 400, err.Error())
 		return
 	}
-	respond(w, 200, map[string]string{"text": prompt.String()})
+	if m == nil {
+		respond(w, 200, agent.CommandAuthorizations{Rules: []agent.CommandAuthorization{}})
+		return
+	}
+	if r.Method == "GET" {
+		respond(w, 200, m.Authorizations())
+		return
+	}
+	var input agent.CommandAuthorizations
+	if !decodeAgent(w, r, &input) {
+		return
+	}
+	p, err := m.SaveAuthorizations(input.Generation, input.Rules)
+	if err != nil {
+		fail(w, 409, err.Error())
+		return
+	}
+	respond(w, 200, p)
 }

@@ -23,9 +23,10 @@ type StartOptions struct {
 	ApprovalPolicy string `json:"approvalPolicy"`
 }
 type Input struct {
-	ID        string `json:"id"`
-	Text      string `json:"text"`
-	CreatedAt string `json:"createdAt"`
+	ID        string             `json:"id"`
+	Text      string             `json:"text"`
+	CreatedAt string             `json:"createdAt"`
+	Context   *DiscussionContext `json:"context,omitempty"`
 }
 type Request struct {
 	ID     string          `json:"id"`
@@ -35,24 +36,32 @@ type Request struct {
 
 // Session 区分项目记录与当前进程内真实运行状态。
 type Session struct {
-	ID                string          `json:"id"`
-	Name              string          `json:"name"`
-	ThreadID          string          `json:"threadId"`
-	Model             string          `json:"model"`
-	Sandbox           json.RawMessage `json:"sandbox"`
-	Options           StartOptions    `json:"options"`
-	ApprovalPolicy    json.RawMessage `json:"approvalPolicy"`
-	ApprovalsReviewer string          `json:"approvalsReviewer"`
-	State             string          `json:"state"`
-	ActiveTurnID      string          `json:"activeTurnId"`
-	ActiveInput       *Input          `json:"activeInput"`
-	LastTurnStatus    string          `json:"lastTurnStatus"`
-	LastError         string          `json:"lastError"`
-	CreatedAt         string          `json:"createdAt"`
-	Sequence          int             `json:"sequence"`
-	Queue             []Input         `json:"queue"`
-	QueuePaused       bool            `json:"queuePaused"`
-	Requests          []Request       `json:"requests"`
+	ParentSessionID   string             `json:"parentSessionId,omitempty"`
+	DiscussionID      string             `json:"discussionId,omitempty"`
+	DocumentID        string             `json:"documentId,omitempty"`
+	DiscussionContext *DiscussionContext `json:"discussionContext,omitempty"`
+	ContextUncertain  bool               `json:"contextUncertain,omitempty"`
+	Replies           []DiscussionReply  `json:"replies,omitempty"`
+	DraftReply        *DiscussionReply   `json:"draftReply,omitempty"`
+	ID                string             `json:"id"`
+	Name              string             `json:"name"`
+	ThreadID          string             `json:"threadId"`
+	Model             string             `json:"model"`
+	Sandbox           json.RawMessage    `json:"sandbox"`
+	Options           StartOptions       `json:"options"`
+	ApprovalPolicy    json.RawMessage    `json:"approvalPolicy"`
+	ApprovalsReviewer string             `json:"approvalsReviewer"`
+	State             string             `json:"state"`
+	ActiveTurnID      string             `json:"activeTurnId"`
+	ActiveInput       *Input             `json:"activeInput"`
+	LastTurnID        string             `json:"lastTurnId,omitempty"`
+	LastTurnStatus    string             `json:"lastTurnStatus"`
+	LastError         string             `json:"lastError"`
+	CreatedAt         string             `json:"createdAt"`
+	Sequence          int                `json:"sequence"`
+	Queue             []Input            `json:"queue"`
+	QueuePaused       bool               `json:"queuePaused"`
+	Requests          []Request          `json:"requests"`
 }
 type Event struct {
 	Sequence  int             `json:"sequence"`
@@ -67,26 +76,33 @@ type SendResult struct {
 }
 type runtimeSession struct {
 	Session
-	client    *client
-	busy      bool
-	answering map[string]bool
-	recent    []Event
+	client         *client
+	busy           bool
+	deleting       bool
+	answering      map[string]bool
+	completedTurns map[string]bool
+	recent         []Event
 }
 
 // Manager 持有本工作台创建的子进程和受限日志目录。
 type Manager struct {
 	mu       sync.Mutex
+	policyMu sync.RWMutex
 	root     *os.Root
 	cwd      string
 	factory  func() *exec.Cmd
 	sessions map[string]*runtimeSession
 	closed   bool
+	policy   CommandAuthorizations
 }
 
 // NewManager 接管 storage 句柄；只载入已有记录，不启动任何原生进程。
 func NewManager(cwd string, storage *os.Root, factory func() *exec.Cmd) (*Manager, error) {
 	m := &Manager{root: storage, cwd: cwd, factory: factory, sessions: map[string]*runtimeSession{}}
 	if err := m.load(); err != nil {
+		return nil, err
+	}
+	if err := m.loadAuthorizations(); err != nil {
 		return nil, err
 	}
 	return m, nil
@@ -147,10 +163,26 @@ func validateOptions(o *StartOptions) error {
 	return nil
 }
 func (m *Manager) Create(ctx context.Context, o StartOptions) (Session, error) {
+	return m.create(ctx, o, "", "", "")
+}
+func (m *Manager) create(ctx context.Context, o StartOptions, parentID, discussionID, documentID string) (Session, error) {
 	if err := validateOptions(&o); err != nil {
 		return Session{}, err
 	}
 	m.mu.Lock()
+	if parentID != "" {
+		parent := m.sessions[parentID]
+		if parent == nil || parent.DiscussionID != "" {
+			m.mu.Unlock()
+			return Session{}, errors.New("请选择一个工作会话作为参与 Agent")
+		}
+		for _, existing := range m.sessions {
+			if existing.ParentSessionID == parentID && existing.DiscussionID == discussionID {
+				m.mu.Unlock()
+				return cloneSession(existing.Session), nil
+			}
+		}
+	}
 	if m.closed {
 		m.mu.Unlock()
 		return Session{}, errors.New("会话服务已关闭")
@@ -165,7 +197,8 @@ func (m *Manager) Create(ctx context.Context, o StartOptions) (Session, error) {
 		m.mu.Unlock()
 		return Session{}, errors.New("最多同时运行 8 个会话")
 	}
-	r := &runtimeSession{Session: Session{ID: rand.Text(), Name: o.Name, Options: o, State: "starting", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Queue: []Input{}, Requests: []Request{}}, answering: map[string]bool{}, recent: []Event{}}
+	r := &runtimeSession{Session: Session{ID: rand.Text(), Name: o.Name, Options: o, State: "starting", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Queue: []Input{}, Requests: []Request{}}, answering: map[string]bool{}, completedTurns: map[string]bool{}, recent: []Event{}}
+	r.ParentSessionID, r.DiscussionID, r.DocumentID = parentID, discussionID, documentID
 	m.sessions[r.ID] = r
 	if err := m.persistLocked(r); err != nil {
 		delete(m.sessions, r.ID)
@@ -184,7 +217,7 @@ func (m *Manager) start(ctx context.Context, r *runtimeSession, resume bool) (Se
 		return Session{}, fmt.Errorf("无法启动 Codex，请确认已安装 CLI：%w", err)
 	}
 	m.mu.Lock()
-	if m.closed || r.State == "closed" {
+	if m.closed || r.deleting || r.State == "closed" {
 		m.mu.Unlock()
 		c.Close()
 		return Session{}, errors.New("会话服务已关闭")
@@ -249,7 +282,7 @@ func (m *Manager) start(ctx context.Context, r *runtimeSession, resume bool) (Se
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if m.closed || r.State == "closed" {
+	if m.closed || r.deleting || r.State == "closed" {
 		go c.Close()
 		return Session{}, errors.New("会话已关闭")
 	}
@@ -301,15 +334,32 @@ func (m *Manager) failStart(r *runtimeSession, err error) {
 	}
 }
 func (m *Manager) Send(ctx context.Context, id, text string) (SendResult, error) {
+	return m.send(ctx, id, text, nil, "")
+}
+func (m *Manager) send(ctx context.Context, id, text string, snapshot *DiscussionContext, baseline string) (SendResult, error) {
 	if strings.TrimSpace(text) == "" || len(text) > 2*1024*1024 || !utf8.ValidString(text) {
 		return SendResult{}, errors.New("输入须为有效文本，且不超过 2 MiB")
 	}
 	input := Input{ID: rand.Text(), Text: text, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	input.Context = snapshot
 	m.mu.Lock()
 	r := m.sessions[id]
 	if r == nil || r.client == nil || r.State == "disconnected" || r.State == "closed" || r.State == "starting" {
 		m.mu.Unlock()
 		return SendResult{}, errors.New("会话未连接，请先创建或恢复")
+	}
+	if r.DiscussionID != "" {
+		if snapshot == nil || snapshot.DiscussionID != r.DiscussionID || snapshot.DocumentID != r.DocumentID || snapshot.ThreadID != r.ThreadID {
+			m.mu.Unlock()
+			return SendResult{}, errors.New("讨论专用会话须发送与其关联的上下文预览")
+		}
+		if ContextHash(r.DiscussionContext) != baseline || r.ContextUncertain && !snapshot.Full {
+			m.mu.Unlock()
+			return SendResult{}, errors.New("同步基线已变化或送达结果不明，请重新预览并完整发送")
+		}
+	} else if snapshot != nil {
+		m.mu.Unlock()
+		return SendResult{}, errors.New("工作会话不能接收讨论同步记录")
 	}
 	queued := r.busy || len(r.Queue) > 0 || r.QueuePaused
 	if queued && len(r.Queue) >= 20 {
@@ -353,6 +403,18 @@ func (m *Manager) runTurn(ctx context.Context, r *runtimeSession, input Input) e
 	m.mu.Lock()
 	c := r.client
 	threadID := r.ThreadID
+	if c != nil {
+		data, _ := json.Marshal(map[string]string{"inputId": input.ID})
+		if err := m.recordLocked(r, "workbench/turnSubmitted", nil, data); err != nil {
+			r.LastError = err.Error()
+			r.QueuePaused = true
+			r.State = "disconnected"
+			_ = m.persistLocked(r)
+			m.mu.Unlock()
+			c.Close()
+			return err
+		}
+	}
 	m.mu.Unlock()
 	if c == nil {
 		return errors.New("原生连接已关闭")
@@ -362,6 +424,9 @@ func (m *Manager) runTurn(ctx context.Context, r *runtimeSession, input Input) e
 	value, err := c.Call(requestContext, "turn/start", map[string]any{"threadId": threadID, "clientUserMessageId": input.ID, "input": []map[string]string{{"type": "text", "text": input.Text}}})
 	m.mu.Lock()
 	if err != nil {
+		if input.Context != nil {
+			r.ContextUncertain = true
+		}
 		r.LastError = err.Error()
 		if r.State != "closed" {
 			r.State = "disconnected"
@@ -380,6 +445,17 @@ func (m *Manager) runTurn(ctx context.Context, r *runtimeSession, input Input) e
 	_ = json.Unmarshal(value, &response)
 	if r.busy && r.ActiveInput != nil && r.ActiveInput.ID == input.ID && r.State != "closed" && r.State != "disconnected" {
 		r.ActiveTurnID = response.Turn.ID
+		if input.Context != nil && (r.DiscussionContext == nil || r.DiscussionContext.InputID != input.ID) {
+			data, _ := json.Marshal(map[string]string{"inputId": input.ID, "turnId": response.Turn.ID, "threadId": threadID})
+			if err = m.recordLocked(r, "workbench/inputDelivered", nil, data); err != nil {
+				r.ContextUncertain = true
+				r.QueuePaused = true
+				_ = m.persistLocked(r)
+				m.mu.Unlock()
+				return err
+			}
+		}
+		m.deliverDiscussionLocked(r, input, response.Turn.ID)
 	}
 	persistErr := m.persistLocked(r)
 	m.mu.Unlock()
@@ -416,6 +492,11 @@ func (m *Manager) onEvent(id, method string, requestID, params json.RawMessage) 
 		Error     string          `json:"error"`
 	}
 	_ = json.Unmarshal(params, &p)
+	if method == "turn/started" && r.completedTurns[p.Turn.ID] {
+		m.mu.Unlock()
+		return
+	}
+	m.observeDiscussionLocked(r, method, params)
 	persist := false
 	if len(requestID) > 0 && string(requestID) != "null" {
 		key := string(requestID)
@@ -428,6 +509,9 @@ func (m *Manager) onEvent(id, method string, requestID, params json.RawMessage) 
 	switch method {
 	case "turn/started":
 		if p.ThreadID != "" && p.ThreadID != r.ThreadID {
+			break
+		}
+		if r.ActiveInput == nil || r.ActiveTurnID != "" && r.ActiveTurnID != p.Turn.ID {
 			break
 		}
 		if r.State != "closed" {
@@ -452,9 +536,14 @@ func (m *Manager) onEvent(id, method string, requestID, params json.RawMessage) 
 		if p.ThreadID != "" && p.ThreadID != r.ThreadID {
 			break
 		}
+		if p.Turn.ID == "" || p.Turn.ID != r.ActiveTurnID {
+			break
+		}
 		r.ActiveTurnID = ""
 		r.ActiveInput = nil
 		r.busy = false
+		r.completedTurns[p.Turn.ID] = true
+		r.LastTurnID = p.Turn.ID
 		r.LastTurnStatus = p.Turn.Status
 		r.Requests = []Request{}
 		r.answering = map[string]bool{}
@@ -497,6 +586,9 @@ func (m *Manager) onEvent(id, method string, requestID, params json.RawMessage) 
 		_ = m.persistLocked(r)
 	}
 	m.mu.Unlock()
+	if method == "item/commandExecution/requestApproval" && len(requestID) > 0 {
+		go m.autoApproveCommand(id, string(requestID))
+	}
 	if next != nil {
 		go func() { _ = m.runTurn(context.Background(), r, *next) }()
 	}
@@ -528,6 +620,10 @@ func (m *Manager) ControlQueue(ctx context.Context, id, action string) error {
 	if action == "clear" {
 		r.Queue = []Input{}
 		r.QueuePaused = false
+		if err := m.recordLocked(r, "workbench/queueCleared", nil, json.RawMessage(`{}`)); err != nil {
+			m.mu.Unlock()
+			return err
+		}
 		err := m.persistLocked(r)
 		m.mu.Unlock()
 		return err
@@ -535,6 +631,10 @@ func (m *Manager) ControlQueue(ctx context.Context, id, action string) error {
 	if action != "continue" || r.client == nil || r.State != "idle" || r.busy {
 		m.mu.Unlock()
 		return errors.New("仅空闲连接可继续队列")
+	}
+	if r.ContextUncertain {
+		m.mu.Unlock()
+		return errors.New("上次送达结果不明，请清空旧队列并完整重新预览")
 	}
 	r.QueuePaused = false
 	var next *Input
@@ -561,7 +661,7 @@ func (m *Manager) ControlQueue(ctx context.Context, id, action string) error {
 func (m *Manager) Resume(ctx context.Context, id string) (Session, error) {
 	m.mu.Lock()
 	r := m.sessions[id]
-	if m.closed || r == nil || r.ThreadID == "" || r.client != nil || r.State == "starting" {
+	if m.closed || r == nil || r.deleting || r.ThreadID == "" || r.client != nil || r.State == "starting" {
 		m.mu.Unlock()
 		return Session{}, errors.New("此会话不能恢复")
 	}

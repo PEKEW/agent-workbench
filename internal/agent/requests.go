@@ -9,6 +9,9 @@ import (
 
 // Answer 只回应本会话仍待处理的原生请求，不透传任意协议方法。
 func (m *Manager) Answer(ctx context.Context, id, requestID string, result json.RawMessage) error {
+	return m.answer(ctx, id, requestID, result, nil, nil)
+}
+func (m *Manager) answer(ctx context.Context, id, requestID string, result json.RawMessage, guard func() error, rule *CommandAuthorization) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -34,6 +37,12 @@ func (m *Manager) Answer(ctx context.Context, id, requestID string, result json.
 		m.mu.Unlock()
 		return err
 	}
+	if guard != nil {
+		if err := guard(); err != nil {
+			m.mu.Unlock()
+			return err
+		}
+	}
 	r.answering[requestID] = true
 	c := r.client
 	payload, _ := json.Marshal(map[string]any{"requestId": requestID, "method": request.Method, "result": loggedAnswer(*request, result)})
@@ -43,24 +52,40 @@ func (m *Manager) Answer(ctx context.Context, id, requestID string, result json.
 		return err
 	}
 	m.mu.Unlock()
-	err := c.replyIf(json.RawMessage(requestID), result, func() error {
+	err := c.replyGuarded(json.RawMessage(requestID), result, func() (func(), error) {
+		var release func()
+		if guard != nil {
+			m.policyMu.RLock()
+			release = m.policyMu.RUnlock
+		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
 		if r.client != c || r.State == "closed" || r.State == "disconnected" {
-			return errors.New("原生连接已失效")
+			return release, errors.New("原生连接已失效")
 		}
 		for _, pending := range r.Requests {
 			if pending.ID == requestID {
-				return ctx.Err()
+				if guard != nil {
+					if err := guard(); err != nil {
+						return release, err
+					}
+				}
+				return release, ctx.Err()
 			}
 		}
-		return errors.New("原生请求已被撤销，未发送回应")
+		return release, errors.New("原生请求已被撤销，未发送回应")
 	})
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(r.answering, requestID)
 	if err != nil {
 		return err
+	}
+	if rule != nil {
+		payload, _ := json.Marshal(map[string]any{"requestId": requestID, "ruleId": rule.ID, "prefix": rule.Prefix, "sessionId": rule.SessionID})
+		if err := m.recordLocked(r, "workbench/commandAutoApproved", nil, payload); err != nil {
+			return err
+		}
 	}
 	for i, q := range r.Requests {
 		if q.ID == requestID {

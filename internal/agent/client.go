@@ -134,6 +134,14 @@ func startClient(cmd *exec.Cmd, onEvent func(string, json.RawMessage, json.RawMe
 }
 func (c *client) write(value any) error { return c.writeChecked(value, nil) }
 func (c *client) writeChecked(value any, check func() error) error {
+	return c.writeTransaction(value, func() (func(), error) {
+		if check == nil {
+			return nil, nil
+		}
+		return nil, check()
+	})
+}
+func (c *client) writeTransaction(value any, check func() (func(), error)) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	select {
@@ -142,7 +150,11 @@ func (c *client) writeChecked(value any, check func() error) error {
 	default:
 	}
 	if check != nil {
-		if err := check(); err != nil {
+		release, err := check()
+		if release != nil {
+			defer release()
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -181,4 +193,8 @@ func (c *client) Close() {
 
 func (c *client) replyIf(id json.RawMessage, result any, check func() error) error {
 	return c.writeChecked(map[string]any{"id": id, "result": result}, check)
+}
+
+func (c *client) replyGuarded(id json.RawMessage, result any, check func() (func(), error)) error {
+	return c.writeTransaction(map[string]any{"id": id, "result": result}, check)
 }

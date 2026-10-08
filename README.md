@@ -1,77 +1,189 @@
 # Agent Workbench
 
-以 semi-harness 项目结构为基础的本地 Agent 网页工作台。一个工作台绑定一个项目，在浏览器中打开计划、设计、证据和交互图。
+Agent Workbench 是单项目本地网页工作台，把 Markdown 文档、批注讨论、Codex 会话和执行日志放在同一个界面中。网页负责阅读、交互与任务交付，Codex 原生运行时负责文件、代码、Shell 和工具操作，Go 本地服务负责转发、状态持久化与回复回写。
 
-当前版本提供项目新建、已有项目打开、文档阅读与编辑保存、HTML 批注讨论和 iframe 图展示。已接入 Codex 新会话、任务输入、原生审批、执行事件、排队和手动讨论转发；独立任务管理与自动广播尚未实现。
+当前交付定位为 **1.0 预览版**，适合单机、单用户、单项目的本地试用。核心工作流程已有自动化检查和真实 Codex 验证记录；源码仓库为 [PEKEW/agent-workbench](https://github.com/PEKEW/agent-workbench)。正式版本标签、发行包和全新环境安装验收尚未完成。
 
-## 使用
+## 已实现的功能
 
-本机已构建的程序：
+| 模块 | 当前能力 |
+| --- | --- |
+| 项目 | 新建模板项目、打开已有项目；一个进程绑定一个项目 |
+| 文档 | Markdown 阅读、原文编辑保存、外部刷新、版本冲突保护；工程文件默认折叠 |
+| 批注 | 引用批注、整篇意见、备忘、回复、Rebuttal、结论、解决与重开 |
+| Agent | Codex 新会话、任务预览与发送、排队、中断、关闭、显式恢复和删除 |
+| 讨论交付 | 独立讨论会话、增量材料、批量交付、最终回复自动写回、结论送回工作会话 |
+| 执行反馈 | 对话与执行双时间线、完整原始日志、执行状态与交互提醒 |
+| 权限 | 原生审批与问题响应、项目或会话范围的命令前缀授权及撤销 |
+| 交互图 | iframe 展示 Archify 等工具生成的独立 HTML |
+| 可选记忆 | Claude-Mem 本地查看器、Codex 原生记忆插件的 hooks 查看与显式信任 |
 
-```bash
-./bin/agent-workbench
-./bin/agent-workbench open /Users/peke/agent-workbench
-./bin/agent-workbench new --name my-project /已有父目录/my-project
+## 环境要求
+
+- 源码构建：Go 1.25 或更高版本；当前验证工具链为 Go 1.27.1。
+- 使用界面：现代浏览器；当前浏览器集成验证使用 Chrome。
+- 使用 Agent：本机已安装并登录 Codex CLI，且 `codex` 在 PATH 中；已验证版本为 0.160.0。其他版本的原生协议兼容性尚未验证。
+- 开发检查：Python 3 用于文档检查，Node.js 与 Chrome 用于前端和浏览器检查。
+
+已构建的工作台程序内嵌网页与项目模板，基础功能不需要 Go、Python 或 Node.js。Codex 及可选 Claude-Mem 按各自要求安装。仅阅读、编辑和批注文档时可以不启动 Agent。
+
+## 快速开始
+
+取得源码并构建：
+
+```sh
+git clone https://github.com/PEKEW/agent-workbench.git
+cd agent-workbench
+go build -o bin/agent-workbench ./cmd/agent-workbench
 ```
 
-默认自动打开浏览器。使用 `--no-browser` 只打印地址，`--port 端口` 指定端口；选项须放在目录参数之前。Ctrl+C 关闭服务。打开另一个项目时启动另一个进程。
+打开已有项目，路径替换为自己的项目目录：
 
-新建目标目录必须不存在；打开已有项目只读加载文件，不执行项目脚本。缺少规范或计划时页面显示提示，文档刷新可读取外部编辑的最新内容。工程文件默认折叠，可在左侧展开查看。Markdown 可编辑原文并保存到对应文件；外部改动会提示版本冲突并保留草稿，冻结记录及只读区域不能保存。保存不会自动提交 Git。
+```sh
+./bin/agent-workbench open /path/to/project
+```
 
-访问地址含本次服务凭证，请使用终端给出的完整地址。
+新建模板项目，目标目录必须不存在，父目录必须已存在：
 
-## 交互图
+```sh
+./bin/agent-workbench new --name my-project /path/to/my-project
+```
 
-把 Archify 生成的独立 HTML 放在项目的 `docs/diagrams/`，刷新后在左侧“交互图”中打开。HTML 在隔离 iframe 中运行，可使用节点查看、主题和路径等本地交互。嵌入模式不支持网络请求、弹窗和下载；需要完整导出功能时可在浏览器单独打开原 HTML 文件。
+也可以不带子命令启动，在网页选择新建或打开：
 
-本项目附带阶段一架构设计图及 JSON 源。工作台只读取成品，不需要 Archify 或 Node.js 运行环境，也不做双向编辑或自动生成。当前由外部 agent 修改 JSON 并生成 HTML，网页刷新载入。后续接入 agent 后建议用明确“更新图”请求触发，并在架构或阶段计划变更后提示；普通 Markdown 保存不自动生成图。
+```sh
+./bin/agent-workbench
+```
 
-## 构建与检查
+默认自动打开浏览器。打开已有项目只读取文件，不执行项目脚本；保存原文或启动 Agent 后才执行相应操作。服务仅监听 `127.0.0.1`，终端输出的完整 URL 包含本次访问凭证。关闭服务后旧 URL 失效，重新启动时使用新的完整地址。
 
-Go 1.25 或更高版本：
+需要固定端口或手动打开浏览器时：
 
-```bash
-go build -o bin/agent-workbench ./cmd/agent-workbench
+```sh
+./bin/agent-workbench open --port 60834 --no-browser /path/to/project
+```
+
+**选项必须放在目录参数前。** 按 Ctrl+C 关闭服务；打开另一个项目时启动另一个进程。
+
+## 接入 Codex
+
+在网页的“Agent 会话”中启动 Codex，或通过专用命令同时打开项目与新会话：
+
+```sh
+./bin/agent-workbench connect --agent-name Codex /path/to/project
+```
+
+可指定模型、沙箱和审批策略：
+
+```sh
+./bin/agent-workbench connect --agent-name Reviewer --sandbox read-only --approval on-request /path/to/project
+```
+
+`--model` 指定模型，默认沿用原生配置；`--codex-bin` 指定本机可执行文件路径。默认沙箱为 `workspace-write`，审批策略为 `on-request`。支持的沙箱为 `read-only`、`workspace-write`，审批策略为 `on-request`、`never`。
+
+此命令启动新的 `codex app-server` 会话，日常输入由网页接收。当前最多同时连接 8 个原生会话，讨论参与会话也计入此限制。
+
+1. 输入任务，预览实际发送材料，再明确发送。
+2. 在对话区查看回复，在执行区查看命令、工具事件与审批。
+3. 需要批准或回答原生问题时，通过对应交互控件响应。
+4. 忙碌时输入进入队列；失败或中断后队列暂停，可人工继续或清空。
+5. “停止回合”中断当前任务，“关闭会话”结束该会话运行时。
+
+网页关闭或断线后，只要本地服务仍运行，任务与讨论回写继续执行。服务重启后会话标为已断开，点击“恢复会话”尝试恢复原生 thread；结果不明的输入不会自动重发。空会话缺少原生 rollout 时可重建，有已提交输入的会话保留恢复错误，避免替换已有上下文。
+
+对话和执行过程各默认显示最近 100 条，可展开完整原始日志。顶部、会话列表、讨论参与入口和浏览器标题显示状态；回合结束仍需要核对回复、文件修改和验证结果。
+
+## 文档编辑与讨论
+
+左侧默认展示计划、设计、证据和交互图，`AGENTS.md`、`CLAUDE.md` 等可在“工程文件”中展开。Markdown 使用“编辑原文”修改，再明确保存。外部修改造成版本冲突时保留草稿，核对最新内容后再保存；冻结讨论证据及只读区域不能保存。保存不自动提交 Git。
+
+选中文字建立引用批注，也可以添加整篇意见和备忘。讨论支持回复、Rebuttal、结论、解决与重开，刷新或重启后继续保留。
+
+通过“让 Agent 参与讨论”选择工作会话，工作台创建关联的独立讨论会话。同一工作会话参与不同讨论时使用不同原生 thread。批注可跨文档多选，通过“批量交给 Agent”统一指定任务要求；逐条预览后发送，各项独立处理并将回复写回原讨论。部分失败不会自动重发已交付项。
+
+材料发送规则：
+
+- 首次发送所选讨论的引用和全部发言。
+- 后续发送新增、修改或删除的发言及变化的引用。
+- 文档正文默认不附带；主动勾选后才发送，未变化且已送达的正文跳过。
+- 人工回复保存后，明确预览并发送才触发模型。
+- 最终回复由服务自动写回；结论“送回工作会话”仍需预览和发送。
+
+网页 DOM、CSS 和整份项目文档不会默认进入模型上下文。Codex 自身加载的项目规范、插件 hooks 和记忆材料由原生运行时处理，仍可能占用上下文，不包含在工作台任务材料预览中。
+
+## 授权与会话清理
+
+顶部或 Agent 工具栏的“命令授权”可保存参数前缀，例如 `go test`、`git status`，范围可选当前项目或单个会话。匹配的原生命令审批可自动响应；复杂 Shell 表达式、文件审批和额外权限仍按原生机制处理。撤销规则影响后续匹配，不撤销已执行操作，也不覆盖 Codex 已有的允许规则或沙箱。
+
+“删除会话”清理所选工作台记录与日志，保留项目文件、批注、其他会话、Codex 原生历史和 Claude-Mem 记忆。执行中、有队列或待回写结果时禁止删除；异常断开遗留的输入需要显式确认放弃。
+
+## Archify 交互图
+
+把生成的独立 HTML 放在项目的 `docs/diagrams/`，刷新后从“交互图”打开。本项目附有架构示例和 JSON 源。
+
+工作台只展示成品。图由外部 Agent 或生成工具修改 JSON 并重新生成 HTML，普通 Markdown 保存不会自动更新图。隔离 iframe 支持本地节点、主题等交互，禁止网络请求、弹窗和下载；完整导出功能可单独打开原 HTML 文件使用。
+
+## 可选：Claude-Mem
+
+“记忆”入口嵌入本机 Claude-Mem 查看器，可读取 worker 端口或手动填写本地 URL，地址按项目保存在浏览器中。查看器自身的项目筛选可能包含同一用户的其他项目记忆。
+
+已验证集成为 `claude-mem@13.34.2`。上游安装入口：
+
+```sh
+npx claude-mem@13.34.2 install --ide codex-cli --provider codex
+npx claude-mem start
+```
+
+该安装器会修改用户级 Codex 插件配置，并可能要求第三方登录。本机验证中安装器在注册插件后要求 OAuth，该登录步骤被中止，随后通过本地 Codex provider 配置启动 worker。上述命令尚未通过全新环境端到端安装验收；配置细节、验证过程和限制见 [Claude-Mem 接入记录](docs/reviews/claude-mem.md)。
+
+插件和 worker 就绪后，在“记忆 → 自动记忆设置与 hooks 信任”选择已连接会话，展开并检查五个 hook 定义，明确点击信任，再关闭并恢复空闲会话。信任保存到 Codex 用户配置；定义变化后需要重新检查。观察、摘要及后续检索复用原生插件，数据保存在 Claude-Mem 自有目录。
+
+记忆会产生额外模型调用并占用上下文。工作台讨论增量发送仍按自己的规则执行。安装和配置第三方组件前备份用户配置；若不需要自动生成目录 `CLAUDE.md`，在 Claude-Mem 配置中关闭该行为。
+
+## 数据保存与备份
+
+| 内容 | 保存位置 |
+| --- | --- |
+| 文档与图 | 项目中原有 Markdown、`docs/diagrams/` 等文件 |
+| 批注与讨论 | 项目 `.agent-state/collaboration.json` |
+| 工作台会话、事件日志与命令授权 | 项目 `.agent-state/sessions/` |
+| 原生会话历史 | Codex 自身的数据目录 |
+| 自动记忆 | Claude-Mem 自身的数据目录 |
+
+`.agent-state/` 默认不进入本项目 Git。**只提交 Markdown 不能备份网页讨论和会话记录。** 完整项目备份需包含此目录，建议在停止服务后复制；原生历史、记忆和用户配置需要分别备份。日志包含任务输入、工具事件和回复，应按本地工作数据管理。
+
+## 1.0 范围与交付状态
+
+当前范围是单机文档协作与 Codex 会话工作台。以下能力尚未实现：其他 Agent 运行时适配、已有 TUI 接管及控制权取回、统一共享任务管理、多 Agent 自动讨论调度、可视化 Git 合并、代码编辑器或 VS Code／nvim 接入、Archify 自动生成、模板升级与迁移。
+
+多个会话共享项目目录，版本保存和合并仍通过 Git 操作并人工审阅。当前不默认建立 worktree；没有远程多人账户或多项目进程管理。
+
+正式稳定版发布前还需完成：
+
+- 将当前实现整理为可复现的版本提交与标签，并准备对应发行包。
+- 在全新环境验收构建、首次启动、Codex 接入、服务重启恢复与数据备份；可选记忆单独验收。
+- 明确支持的操作系统与版本范围；当前证据主要来自 macOS，Linux 和 Windows 尚未完成同等验收。
+- 确定项目自身许可证，核对第三方组件许可与分发清单。
+
+当前源码通过 GitHub 仓库交付，尚未配置自动化 CI 或项目自身许可证，也未发布预编译程序。交付范围以仓库中的已提交源码为准，本地讨论、会话日志和用户配置不随源码上传。
+
+## 开发与验证
+
+```sh
 go test -race ./...
 go vet ./...
 python3 scripts/check_markdown.py
+node scripts/agent_ui_test.mjs
+node scripts/batch_discussion_ui_test.mjs
+node scripts/conversation_ui_test.mjs
 ```
 
-本机工具链安装在 `/Users/peke/.local/share/go-toolchains/go1.27.1/go/bin`，需要源码开发时可将此目录加入 PATH。运行已构建程序不依赖 Go 或 Python。
+构建后运行 `node scripts/browser_smoke.mjs`，使用临时项目和独立 Chrome 配置，结果写入 `docs/reviews/`。Chrome 路径可通过 `CHROME_BIN` 指定。该检查使用测试协议进程；真实 Codex 和记忆链路另有验证，不能相互替代。真实模型检查会产生模型调用，运行方法见对应验证记录。
 
-可选浏览器检查：先构建，再运行 `node scripts/browser_smoke.mjs`。检查使用临时项目、独立 Chrome 配置和临时服务，结果写入 docs/reviews；其他 Chrome 安装路径可用 CHROME_BIN 指定。开发验证使用 Node.js 24 与 Chrome，最终程序不依赖它们。
+源码布局：`cmd/agent-workbench` 为命令入口，`internal/project` 管理项目与内嵌模板，`internal/agent` 适配原生运行时，`internal/server` 提供 HTTP 和内嵌网页，`scripts` 保存检查工具。
 
-## 项目入口
-
-- [当前计划](PLAN.md)与[任务计划](docs/task_plan.md)。
-- [产品需求](docs/specs/workbench_spec.md)与[阶段一规格](docs/specs/project_access_spec.md)。
-- [Agent 共同规则](AGENTS.md)；Claude 专用入口见 CLAUDE.md。
-- [阶段一验证记录](docs/reviews/stage-one.md)。
-- [完整讨论快照](docs/reviews/discussion/index.html)。
-- [第三方组件](THIRD_PARTY.md)。
-
-## 目录
-
-cmd/agent-workbench 是命令入口；internal/project 管理项目与内嵌模板；internal/server 提供 HTTP 和内嵌网页；docs/specs 保存设计；docs/reviews 保存证据；docs/diagrams 保存交互图；scripts 保存开发检查工具。
-
-## 文档协作
-
-工作台保留 HTML 的三栏阅读与讨论：选中文字批注、整篇意见、备忘日期、回复／Rebuttal／结论、解决与重开及删除。讨论保存到 `.agent-state/collaboration.json`，刷新或重启服务后继续；该目录默认不进入 Git。多标签页保存发生冲突时保留输入、载入最新讨论，核对后再提交。
-
-“导出交接 JSON”包含项目最新正文与完整讨论，兼容 agent-docs-workspace v1；“载入回复”合并同一工作区的回复及讨论，相同 ID 的重复内容跳过。正文修改建议会作为待处理讨论展示，由用户核对后通过原文编辑器采纳。讨论中的署名用于记录发言者。通过 Agent 会话视图可连接真实 Codex，并将选定讨论转发给该会话；回复可人工加入讨论，来源会话和 item ID 随消息保留。
-
-## Codex 会话
-
-本机需要已安装并登录 Codex CLI。首个适配版本核对于 codex-cli 0.160.0，运行时通过 PATH 查找 codex；Go 产品不依赖 Node.js。通过网页的“Agent 会话 → 启动 Codex”创建，或使用专用命令：
-
-```sh
-./bin/agent-workbench connect --agent-name Codex /完整/项目目录
-```
-
-可在目录前指定 `--model`、`--sandbox read-only`、`--approval on-request`；默认沿用模型配置，使用 workspace-write 与 on-request。`--codex-bin` 仅用于本机明确指定可执行路径。专用命令启动新的 app-server 会话并将日常输入交给网页，当前不接管已有 TUI。
-
-发送任务前先预览，选择是否附上当前文档或一条讨论。忙碌会话排队，失败或中断后队列暂停；可人工继续或清空。原生审批和问题在网页响应，普通聊天不替代审批。“停止回合”中断当前任务；“关闭会话”结束本服务创建的运行时。
-
-原始事件保存在 `.agent-state/sessions/`。网页默认显示最近 100 条可读事件，勾选原始事件或展开“查看完整原始日志”按序补读历史。网页重连不停止任务；服务重启后会话标为已断开，点击“恢复会话”尝试恢复记录的原生 thread，不自动重发结果不明的输入。Native isSecret 回答在工作台日志中遮蔽。
-
-验证见 [阶段二检查](docs/reviews/codex-access.md)。运行 Go 测试用 `go test -race ./...`；前端并发检查为 `node scripts/agent_ui_test.mjs`，真实 Chrome 集成检查为 `node scripts/browser_smoke.mjs`。浏览器检查使用明确标注的测试协议进程；真实 CLI／模型另行验证。
+- [当前计划](PLAN.md)与[任务计划](docs/task_plan.md)
+- [产品规格](docs/specs/workbench_spec.md)与[Codex 接入规格](docs/specs/codex_access_spec.md)
+- [阶段一验证](docs/reviews/stage-one.md)、[Codex 验证](docs/reviews/codex-access.md)、[讨论同步验证](docs/reviews/conversation-sync.md)
+- [批量交付验证](docs/reviews/batch-discussion.md)、[会话控制验证](docs/reviews/session-controls.md)、[记忆验证](docs/reviews/claude-mem.md)
+- [Agent 共同规则](AGENTS.md)、[完整讨论快照](docs/reviews/discussion/index.html)、[第三方组件](THIRD_PARTY.md)

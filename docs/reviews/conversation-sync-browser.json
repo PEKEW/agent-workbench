@@ -1,0 +1,134 @@
+{
+  "claudeMemViewer": true,
+  "claudeMemHookReview": true,
+  "claudeMemExplicitTrust": true,
+  "claudeMemLocalURLOnly": true,
+  "claudeMemMobile": true,
+  "sessionDeletion": true,
+  "commandAuthorizationUI": true,
+  "commandAutoApproval": true,
+  "commandRevocation": true,
+  "interactionReminders": true,
+  "visibleExecutionStatus": true,
+  "visibleWaitingStatus": true,
+  "discussionParticipantStates": true,
+  "batchIndependentDelivery": true,
+  "batchPreviewWithoutSend": true,
+  "batchReplyRouting": true,
+  "batchNoDuplicateSubmit": true,
+  "batchMobile": true,
+  "discussionBodyOptional": true,
+  "timelineMainArea": true,
+  "conversationMarkdown": true,
+  "parallelTimelines": true,
+  "conversationSurvivesExecutionFlood": true,
+  "isolatedDiscussionSession": true,
+  "automaticReplyWriteback": true,
+  "incrementalContext": true,
+  "explicitReturnToParent": true,
+  "boundDiscussionMobile": true,
+  "codexProtocolFixture": true,
+  "connectCommand": true,
+  "agentView": true,
+  "selectedContextPreview": true,
+  "agentEventsEscaped": true,
+  "manualReplyToDiscussion": true,
+  "manualDiscussionForward": true,
+  "queueInterruptResume": true,
+  "nativeApprovalRoute": true,
+  "nativeQuestionRoute": true,
+  "nativeQuestionFocusPreserved": true,
+  "fullRawLogsInWeb": true,
+  "nativePermissionRoute": true,
+  "agentLogsPersisted": true,
+  "agentReloadAndResume": true,
+  "agentMobileNoOverflow": true,
+  "htmlCollaborationRestored": true,
+  "quoteAnnotation": true,
+  "rebuttal": true,
+  "resolveReopen": true,
+  "memoAndFiltering": true,
+  "manualJSONHandoffRemoved": true,
+  "discussionConflictPreservesDraft": true,
+  "discussionSurvivesRestart": true,
+  "anchorChangeWarning": true,
+  "discussionScriptBlocked": true,
+  "newProject": true,
+  "engineeringFilesHidden": true,
+  "editorSave": true,
+  "saveConflictPreservesDraft": true,
+  "unsavedNavigationProtected": true,
+  "existingDirectoryPreserved": true,
+  "existingProjectReadOnly": true,
+  "duplicateDocumentPaths": true,
+  "rawView": true,
+  "staleDocumentCleared": true,
+  "refreshAndReload": true,
+  "markdownScriptBlocked": true,
+  "missingWarnings": true,
+  "iframe": {
+    "svg": 2,
+    "title": "Agent Workbench 阶段一架构设计",
+    "blockedParent": true,
+    "buttons": 71,
+    "networkBlocked": true,
+    "interaction": {
+      "found": true,
+      "changed": true
+    }
+  },
+  "iframeButtons": [
+    {
+      "text": "\n      \n      浅色\n    ",
+      "title": "切换主题（T）",
+      "label": "切换颜色主题"
+    },
+    {
+      "text": "\n        \n        经典\n        \n      ",
+      "title": "选择视觉风格（S 循环切换）",
+      "label": "当前视觉风格：经典。选择视觉风格"
+    },
+    {
+      "text": "\n          \n          经典稳定的技术默认风格\n          \n        ",
+      "title": "",
+      "label": null
+    },
+    {
+      "text": "\n          \n          信号流突出动态流向\n          \n        ",
+      "title": "",
+      "label": null
+    },
+    {
+      "text": "\n          \n          蓝图工程评审\n          \n        ",
+      "title": "",
+      "label": null
+    },
+    {
+      "text": "\n          \n          编辑风格适合发布与上线说明\n          \n        ",
+      "title": "",
+      "label": null
+    },
+    {
+      "text": "\n      \n      动态\n    ",
+      "title": "暂停动效",
+      "label": "暂停动效"
+    },
+    {
+      "text": "\n      \n      演示\n    ",
+      "title": "演示模式（F）",
+      "label": "进入演示模式"
+    },
+    {
+      "text": "\n        导出 \n      ",
+      "title": "导出图表（E）",
+      "label": "导出图表"
+    },
+    {
+      "text": "路径分享卡片1200×630 PNG",
+      "title": "",
+      "label": null
+    }
+  ],
+  "mobileNoOverflow": true,
+  "runtimeErrors": []
+}

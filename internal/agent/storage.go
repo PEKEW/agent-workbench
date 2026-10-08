@@ -67,14 +67,33 @@ func (m *Manager) load() error {
 		state.Requests = []Request{}
 		state.ActiveTurnID = ""
 		state.QueuePaused = len(state.Queue) > 0
-		r := &runtimeSession{Session: state, answering: map[string]bool{}, recent: []Event{}}
+		r := &runtimeSession{Session: state, answering: map[string]bool{}, completedTurns: map[string]bool{}, recent: []Event{}}
 		m.sessions[state.ID] = r
-		events, err := m.readEvents(state.ID, 0, 0)
+		if state.LastTurnID != "" {
+			r.completedTurns[state.LastTurnID] = true
+		}
+		events, err := m.readEventsObserved(state.ID, 0, 0, func(event Event) {
+			if event.Method != "turn/completed" {
+				return
+			}
+			var p struct {
+				ThreadID string `json:"threadId"`
+				Turn     struct {
+					ID string `json:"id"`
+				} `json:"turn"`
+			}
+			if json.Unmarshal(event.Params, &p) == nil && p.Turn.ID != "" && (p.ThreadID == "" || p.ThreadID == r.ThreadID) {
+				r.completedTurns[p.Turn.ID] = true
+			}
+		})
 		if err != nil {
 			return err
 		}
 		if len(events) > 0 {
 			r.Sequence = events[len(events)-1].Sequence
+		}
+		if err = m.restoreDiscussionLocked(r); err != nil {
+			return err
 		}
 		if len(events) > 1000 {
 			events = events[len(events)-1000:]
@@ -155,6 +174,9 @@ func (m *Manager) recordLocked(r *runtimeSession, method string, id, params json
 	return nil
 }
 func (m *Manager) readEvents(id string, after, limit int) ([]Event, error) {
+	return m.readEventsObserved(id, after, limit, nil)
+}
+func (m *Manager) readEventsObserved(id string, after, limit int, observe func(Event)) ([]Event, error) {
 	info, err := m.safeStat(id + "/events.jsonl")
 	if errors.Is(err, fs.ErrNotExist) {
 		return []Event{}, nil
@@ -170,9 +192,12 @@ func (m *Manager) readEvents(id string, after, limit int) ([]Event, error) {
 		return nil, err
 	}
 	defer f.Close()
-	return scanEvents(f, after, limit)
+	return scanEventsObserved(f, after, limit, observe)
 }
 func scanEvents(reader io.Reader, after, limit int) ([]Event, error) {
+	return scanEventsObserved(reader, after, limit, nil)
+}
+func scanEventsObserved(reader io.Reader, after, limit int, observe func(Event)) ([]Event, error) {
 	result := []Event{}
 	scanner := bufio.NewScanner(reader)
 	scanner.Buffer(make([]byte, 4096), 10*1024*1024)
@@ -180,6 +205,9 @@ func scanEvents(reader io.Reader, after, limit int) ([]Event, error) {
 		var event Event
 		if err := json.Unmarshal(scanner.Bytes(), &event); err != nil {
 			return nil, errors.New("日志含不完整或无效记录，原文件已保留")
+		}
+		if observe != nil {
+			observe(event)
 		}
 		if event.Sequence > after {
 			result = append(result, event)

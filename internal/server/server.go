@@ -26,6 +26,10 @@ type Server struct {
 	handler     http.Handler
 	agents      *agent.Manager
 	codexBinary string
+	syncMu      sync.Mutex
+	syncStop    chan struct{}
+	syncDone    chan struct{}
+	closing     bool
 }
 
 // New 构建本地接口；项目句柄的所有权交给 Server。
@@ -77,7 +81,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Referrer-Policy", "no-referrer")
-	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: blob:; connect-src 'self'; frame-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+	w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src data: blob:; connect-src 'self'; frame-src 'self' http://127.0.0.1:* http://localhost:*; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		if s.token == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Workbench-Token")), []byte(s.token)) != 1 {
 			fail(w, 403, "访问凭证无效，请使用终端显示的完整地址打开页面")
@@ -93,6 +97,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // Close 等待读请求完成后释放项目句柄。
 func (s *Server) Close() error {
+	s.mu.Lock()
+	if s.closing {
+		s.mu.Unlock()
+		return nil
+	}
+	s.closing = true
+	stop, done := s.syncStop, s.syncDone
+	if stop != nil {
+		close(stop)
+	}
+	s.mu.Unlock()
+	if done != nil {
+		<-done
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.agents != nil {
@@ -258,13 +276,7 @@ func (s *Server) getCollaboration(w http.ResponseWriter, r *http.Request) {
 		fail(w, 409, "请先打开项目")
 		return
 	}
-	var state project.CollaborationState
-	var err error
-	if r.URL.Query().Get("export") == "1" {
-		state, err = s.project.ExportCollaboration()
-	} else {
-		state, err = s.project.Collaboration()
-	}
+	state, err := s.project.Collaboration()
 	if err != nil {
 		fail(w, 400, err.Error())
 		return
