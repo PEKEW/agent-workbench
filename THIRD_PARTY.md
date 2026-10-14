@@ -6,6 +6,12 @@ internal/server/web/vendor.js 复用 HTML-for-LLM 提交 2388bf94232bef4ea6c2d21
 
 上游：https://github.com/markedjs/marked 与 https://github.com/cure53/DOMPurify。
 
+## LaTeX 公式渲染
+
+internal/server/web/katex.min.js、katex.min.css 与 fonts/ 来自 KaTeX 0.18.11（MIT），包含 woff2 字体；internal/server/web/marked-katex.umd.js 来自 marked-katex-extension 5.1.13（MIT）。两者均取自 npm 官方发布包，保留版本与许可头。许可文本位于 internal/server/web/licenses/。
+
+上游：https://github.com/KaTeX/KaTeX 与 https://github.com/UziTech/marked-katex-extension。
+
 ## Archify
 
 示例架构图由 Archify 提交 a21ed05c9e9c910b66cae912e642ad044302720d 生成。源 JSON 与独立 HTML 保存在 docs/diagrams，许可为 MIT，完整文本见 docs/diagrams/LICENSE-archify.txt。工作台仅显示独立 HTML，运行时不加载生成器。

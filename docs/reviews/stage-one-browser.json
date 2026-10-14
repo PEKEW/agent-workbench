@@ -65,6 +65,7 @@
   "staleDocumentCleared": true,
   "refreshAndReload": true,
   "markdownScriptBlocked": true,
+  "mathFormulaRendering": true,
   "missingWarnings": true,
   "iframe": {
     "svg": 2,
