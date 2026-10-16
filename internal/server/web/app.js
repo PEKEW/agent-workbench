@@ -142,6 +142,7 @@ function renderMarkdown() {
   $('raw-button').setAttribute('aria-pressed',String(raw));
   $('raw-content').hidden=!raw;$('article').hidden=raw;$('raw-content').textContent=markdown;
   renderProjectMarkdown($('article'),markdown,selected);
+  if(typeof renderInlineDiscussion==='function')renderInlineDiscussion();
 }
 async function loadEntry(item) {
   if(!leaveEditor())return;

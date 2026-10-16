@@ -1,4 +1,8 @@
 {
+  "inlineAnnotationComposer": true,
+  "inlineThreadExpansion": true,
+  "documentPageAgentReply": true,
+  "directSendWithoutPreview": true,
   "claudeMemViewer": true,
   "claudeMemHookReview": true,
   "claudeMemExplicitTrust": true,

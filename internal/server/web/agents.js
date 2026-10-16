@@ -32,9 +32,12 @@ function renderAgentStatus(){
  indicator.textContent=agentStatusError?'状态未同步':running||waiting?`执行中 ${running} · 等待响应 ${waiting}`:`${agentSessions.length} 个会话 · 无执行中任务`;
  indicator.dataset.state=agentStatusError?'disconnected':waiting?'waiting':running?'running':'idle';indicator.title=agentStatusError||'点击查看会话执行状态';
  for(const container of document.querySelectorAll('[data-discussion-sessions]')){
-  const documentId=collaboration?.threads.find(t=>t.id===container.dataset.discussionSessions)?.documentId;const sessions=agentSessions.filter(s=>s.parentSessionId&&s.documentId===documentId);container.replaceChildren();
-  for(const session of sessions){const button=document.createElement('button');button.type='button';button.className='session-status-link';button.dataset.state=agentStatusError?'disconnected':session.state;button.textContent=`${session.name} · ${agentStatusError?'状态未同步':agentStatusText(session)}`;button.onclick=()=>{selectAgent(session.id);if(switchWorkbench('agents')){renderAgentSessions();renderAgent();refreshAgents().catch(showError);}};container.append(button);}
+  const thread=collaboration?.threads.find(t=>t.id===container.dataset.discussionSessions),documentId=thread?.documentId;const sessions=agentSessions.filter(s=>s.parentSessionId&&s.documentId===documentId);container.replaceChildren();
+  const progress=thread&&threadAgentState(thread);if(progress){const note=document.createElement('span');note.className='thread-agent-state';note.dataset.state=progress.state;note.textContent=progress.text;container.append(note);}
+  for(const session of sessions){const button=document.createElement('button');button.type='button';button.className='session-status-link';button.title='在 Agent 页查看执行细节';button.dataset.state=agentStatusError?'disconnected':session.state;button.textContent=`${session.name} · ${agentStatusError?'状态未同步':agentStatusText(session)}`;button.onclick=()=>{selectAgent(session.id);if(switchWorkbench('agents')){renderAgentSessions();renderAgent();refreshAgents().catch(showError);}};container.append(button);}
  }
+ for(const chip of document.querySelectorAll('[data-open-thread]')){const thread=collaboration?.threads.find(t=>t.id===chip.dataset.openThread);chip.dataset.agent=thread&&threadAgentState(thread)?.state||'';}
+ renderReplyAgentChoice();
  if(typeof renderSessionInteractions==='function')renderSessionInteractions();
 }
 $('agent-status-overview').onclick=()=>{if(!leaveEditor())return;const active=agentSessions.find(s=>s.state==='waiting')||agentSessions.find(s=>s.state==='running');if(active)selectAgent(active.id);if(switchWorkbench('agents')){renderAgentSessions();renderAgent();refreshAgents().catch(showError);}};
@@ -101,9 +104,9 @@ function updateAgentInputContext(){
 function previewSignature(){const session=getAgent(),bound=!!session?.parentSessionId;return JSON.stringify({text:$('agent-message').value,documents:$('include-current-document').checked?[bound?session.documentId:selected]:[],threadIds:bound?selectedThreads:[],sessionId:selectedAgent,full:!!$('full-agent-context').checked});}
 function updateAgentSendButton(){
  const session=getAgent(),connected=session&&['idle','running','waiting'].includes(session.state),previewed=agentPreview&&agentPreview.signature===previewSignature();
- $('send-agent-input').disabled=agentSending||!connected||!previewed;
+ $('send-agent-input').disabled=agentSending||!connected||!$('agent-message').value.trim();
  $('send-agent-input').textContent=session&&(['running','waiting'].includes(session.state)||session.queue.length||session.queuePaused)?'加入队列':'发送';
- $('agent-send-hint').textContent=agentSending?'正在发送…':!session?'请先选择或启动一个会话。':!connected?'会话尚未连接，请先恢复会话或启动新会话。':!$('agent-message').value.trim()?'输入消息后，先点击「预览任务」，再发送。':!previewed?'请先点击「预览任务」；修改内容后需要重新预览。':'内容已预览，可以发送。';
+ $('agent-send-hint').textContent=agentSending?'正在发送…':!session?'请先选择或启动一个会话。':!connected?'会话尚未连接，请先恢复会话或启动新会话。':!$('agent-message').value.trim()?'输入消息后可直接发送，也可先预览。':!previewed?'可直接发送；发送时生成并提交实际内容，也可先预览检查。':'内容已预览，可以发送。';
 }
 function invalidateAgentPreview(){agentPreview=null;$('agent-preview-panel').hidden=true;updateAgentSendButton();}
 $('agent-message').oninput=invalidateAgentPreview;$('include-current-document').onchange=invalidateAgentPreview;$('full-agent-context').onchange=invalidateAgentPreview;
@@ -116,7 +119,9 @@ async function previewAgentInput(){
 }
 $('preview-agent-input').onclick=async()=>{try{await previewAgentInput();showError(null);}catch(error){showError(error);}};
 $('agent-input-form').onsubmit=async event=>{
-  event.preventDefault();if(agentSending||!agentPreview||agentPreview.signature!==previewSignature())return;
+  event.preventDefault();if(agentSending)return;
+  // 未预览时先生成预览再提交，提交内容与预览一致；预览失败时保留输入。
+  if(!agentPreview||agentPreview.signature!==previewSignature()){try{await previewAgentInput();}catch(error){showError(error);return;}if(!agentPreview||agentPreview.signature!==previewSignature())return;}
   const id=selectedAgent,text=agentPreview.text,submittedSignature=agentPreview.signature,checksum=agentPreview.checksum;agentSending=true;updateAgentSendButton();
   try{const result=await api(`agents/${encodeURIComponent(id)}/input`,checksum?{preview:JSON.parse(submittedSignature),checksum}:{text});$('agent-input-status').textContent=result.queued?'已加入队列':'已发送到 Codex';if(selectedAgent===id&&previewSignature()===submittedSignature){$('agent-message').value='';agentDrafts.delete(id);agentPreview=null;$('agent-preview-panel').hidden=true;selectedThreads=[];renderedDiscussionSignature='';updateAgentInputContext();}else if(agentDrafts.get(id)?.signature===submittedSignature){agentDrafts.delete(id);}showError(null);await refreshAgents();}
   catch(error){$('agent-input-status').textContent='输入已保留';showError(error);}
@@ -127,6 +132,53 @@ const replyReadabilityRules='回复要求：\n- 结论先行：首句直接给�
 function discussionTaskInstruction(thread){
  const latest=thread?.messages.filter(m=>m.role==='human').at(-1)?.body||'请处理这条讨论中用户的最新要求。';
  return latest+'\n\n请结合引用和讨论背景处理以上用户要求。若要求实现或修改，请实际实施并验证；若要求讨论，请回应并说明依据。仅完成分析时应明确说明尚未实施。\n\n'+replyReadabilityRules;
+}
+// 文档页直接请 Agent 回复：打开所选工作会话在该文档上的讨论会话，以本条讨论为回应对象生成增量材料并立即发送。
+const askingThreads=new Set();
+const replyAgentKey=()=>'workbench-reply-agent:'+(project?.root||'');
+let renderedReplyAgents='';
+function renderReplyAgentChoice(){
+ const select=$('reply-agent'),parents=agentSessions.filter(s=>!s.parentSessionId);let stored='';try{stored=localStorage.getItem(replyAgentKey())||'';}catch{}
+ const signature=JSON.stringify([parents.map(s=>[s.id,s.name]),stored]);
+ if(signature!==renderedReplyAgents){renderedReplyAgents=signature;const previous=select.value;select.replaceChildren();
+  for(const parent of parents){const option=document.createElement('option');option.value=parent.id;option.textContent=parent.name;select.append(option);}
+  if(!parents.length){const option=document.createElement('option');option.value='';option.textContent='未启动工作会话';select.append(option);}
+  select.value=parents.some(s=>s.id===previous)?previous:parents.some(s=>s.id===stored)?stored:parents.at(-1)?.id||'';}
+ select.disabled=!parents.length;$('reply-agent-start').hidden=!!parents.length;
+}
+$('reply-agent').onchange=()=>{try{localStorage.setItem(replyAgentKey(),$('reply-agent').value);}catch{}renderedReplyAgents='';renderReplyAgentChoice();};
+$('reply-agent-start').onclick=()=>{if(switchWorkbench('agents')){refreshAgents().catch(showError);$('new-agent').click();}};
+function threadAgentState(thread){
+ if(askingThreads.has(thread.id))return {state:'running',text:'正在交给 Agent…'};
+ const lists=input=>input?.context?.selected?.includes(thread.id);
+ for(const session of agentSessions.filter(s=>s.parentSessionId&&s.documentId===thread.documentId)){
+  if(['running','waiting'].includes(session.state)&&lists(session.activeInput))return {state:session.state,text:session.state==='waiting'?`${session.name} 等待你的响应`:`${session.name} 正在回复…`};
+  if((session.queue||[]).some(lists))return {state:'waiting',text:session.queuePaused?`${session.name} 队列已暂停`:`已排队，等待 ${session.name}`};
+  const reply=(session.replies||[]).find(r=>!r.synced&&!r.discarded&&r.discussions?.includes(thread.id));
+  if(reply)return reply.error?{state:'disconnected',text:'回复写回失败：'+reply.error}:{state:'running',text:'回复正在写回…'};
+ }
+ return null;
+}
+async function sendDiscussionRequest(session,threadIDs){
+ if(!['idle','running','waiting'].includes(session.state))throw Error(`「${session.name}」已断开，请到 Agent 页恢复会话后重试`);
+ const thread=collaboration?.threads.find(t=>t.id===threadIDs[0]);
+ const input={sessionId:session.id,threadIds:threadIDs,text:discussionTaskInstruction(thread),documents:[],full:false};
+ const preview=await api('agents/preview',input);
+ const result=await api(`agents/${encodeURIComponent(session.id)}/input`,{preview:input,checksum:preview.checksum});
+ $('discussion-status').textContent=result.queued?`已排队，等待 ${session.name} 回复`:`已交给 ${session.name}，回复将写回讨论`;
+ return result;
+}
+async function requestAgentReply(threadID){
+ const thread=collaboration?.threads.find(t=>t.id===threadID);if(!thread)throw Error('讨论已删除');
+ if(askingThreads.has(threadID))return;
+ const parent=agentSessions.find(s=>!s.parentSessionId&&s.id===$('reply-agent').value);
+ if(!parent)throw Error('请先在 Agent 页启动一个工作会话，再请 Agent 回复');
+ askingThreads.add(threadID);renderAgentStatus();
+ try{
+  const session=await api(`agents/${encodeURIComponent(parent.id)}/discussion`,{documentId:thread.documentId});
+  agentSessions=agentSessions.filter(s=>s.id!==session.id).concat(session);
+  await sendDiscussionRequest(session,[threadID]);
+ }finally{askingThreads.delete(threadID);await refreshAgents().catch(()=>{});renderAgentStatus();}
 }
 function forwardThreadToAgent(id){
  const parents=agentSessions.filter(s=>!s.parentSessionId);
@@ -267,7 +319,7 @@ function renderAgentDiscussion(session){
  const bound=!!session?.parentSessionId;$('agent-bound-discussion').hidden=!bound;if(!bound){renderedDiscussionSignature='';return;}
  const threads=documentThreads(session),parent=agentSessions.find(s=>s.id===session.parentSessionId);
  $('agent-discussion-title').textContent='文档讨论';$('agent-discussion-origin').textContent=`${session.documentId} · ${threads.length} 条讨论 · 参与者 ${parent?.name||session.parentSessionId}`;
- $('save-agent-discussion-reply').disabled=!threads.length||discussionBusy;$('return-to-work').disabled=!threads.length||!parent;
+ $('save-agent-discussion-reply').disabled=$('save-ask-agent-discussion-reply').disabled=!threads.length||discussionBusy;$('return-to-work').disabled=!threads.length||!parent;
  const failed=(session.replies||[]).filter(reply=>reply.error);const pending=(session.replies||[]).filter(reply=>!reply.synced&&!reply.discarded);
  $('agent-discussion-sync').textContent=!threads.length?'该文档的讨论已全部删除；会话回复仍保留。':failed.length?failed.map(reply=>reply.error).join('\n'):pending.length?'最终回复正在写回讨论…':'最终回复按「讨论 <ID>」标题自动写回各条讨论。';
  const signature=JSON.stringify([session.id,threads,selectedThreads]);if(signature===renderedDiscussionSignature)return;renderedDiscussionSignature=signature;
@@ -292,12 +344,14 @@ $('agent-discussion-messages').addEventListener('change',event=>{
 });
 $('open-agent-document').onclick=()=>{const session=getAgent(),target=entries().find(item=>item.path===session?.documentId);if(target&&switchWorkbench('documents'))loadEntry(target);};
 $('agent-discussion-reply').oninput=()=>agentReplyDrafts.set(selectedAgent,$('agent-discussion-reply').value);
-$('agent-discussion-form').onsubmit=async event=>{
- event.preventDefault();const session=getAgent(),body=$('agent-discussion-reply').value.trim(),submitted=$('agent-discussion-reply').value,threadID=$('agent-discussion-thread').value;
+async function saveBoundDiscussionReply(ask){
+ const session=getAgent(),body=$('agent-discussion-reply').value.trim(),submitted=$('agent-discussion-reply').value,threadID=$('agent-discussion-thread').value;
  if(!session?.parentSessionId||!body||discussionBusy)return;
- try{const next=clone(collaboration.threads),thread=next.find(t=>t.id===threadID&&t.documentId===session.documentId);if(!thread)throw Error('讨论已删除');thread.messages.push(makeMessage(body));await persistThreads(next);if(selectedAgent===session.id&&$('agent-discussion-reply').value===submitted){$('agent-discussion-reply').value='';agentReplyDrafts.delete(session.id);}else if(agentReplyDrafts.get(session.id)===submitted){agentReplyDrafts.delete(session.id);}renderAgentDiscussion(getAgent());invalidateAgentPreview();showError(null);}
+ try{const next=clone(collaboration.threads),thread=next.find(t=>t.id===threadID&&t.documentId===session.documentId);if(!thread)throw Error('讨论已删除');thread.messages.push(makeMessage(body));await persistThreads(next);if(selectedAgent===session.id&&$('agent-discussion-reply').value===submitted){$('agent-discussion-reply').value='';agentReplyDrafts.delete(session.id);}else if(agentReplyDrafts.get(session.id)===submitted){agentReplyDrafts.delete(session.id);}renderAgentDiscussion(getAgent());invalidateAgentPreview();if(ask)await sendDiscussionRequest(session,[threadID]).finally(()=>refreshAgents().catch(()=>{}));showError(null);}
  catch(error){showError(error);}
-};
+}
+$('agent-discussion-form').onsubmit=event=>{event.preventDefault();return saveBoundDiscussionReply(false);};
+$('save-ask-agent-discussion-reply').onclick=()=>saveBoundDiscussionReply(true);
 $('return-to-work').onclick=()=>{
  const session=getAgent(),threads=documentThreads(session);if(!threads.length||!session.parentSessionId)return;
  const messages=threads.flatMap(thread=>thread.messages.map(message=>({thread,message})));
