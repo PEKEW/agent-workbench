@@ -33,19 +33,23 @@ func TestInstalledCodexDiscussionWriteback(t *testing.T) {
 	s.mu.Lock()
 	state, err := s.project.Collaboration()
 	if err == nil {
-		_, err = s.project.SaveCollaboration(state.Generation, []project.Thread{{ID: "native-discussion", DocumentID: "PLAN.md", Kind: "comment", Status: "open", Messages: []project.Message{{ID: "native-C1", Author: "我", Role: "human", Intent: "comment", Body: "验证讨论回复自动写回。", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}}})
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		_, err = s.project.SaveCollaboration(state.Generation, []project.Thread{
+			{ID: "native-discussion", DocumentID: "PLAN.md", Kind: "comment", Status: "open", Messages: []project.Message{{ID: "native-C1", Author: "我", Role: "human", Intent: "comment", Body: "验证讨论回复自动写回。", CreatedAt: now}}},
+			{ID: "native-second", DocumentID: "PLAN.md", Kind: "comment", Status: "open", Messages: []project.Message{{ID: "native-C2", Author: "我", Role: "human", Intent: "comment", Body: "第二条讨论同样需要回应。", CreatedAt: now}}},
+		})
 	}
 	s.mu.Unlock()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code := jsonRequest(t, s, "/api/agents/"+parent.ID+"/discussion", map[string]string{"discussionId": "native-discussion"}, &child); code != 201 {
+	if code := jsonRequest(t, s, "/api/agents/"+parent.ID+"/discussion", map[string]string{"documentId": "PLAN.md"}, &child); code != 201 {
 		t.Fatal("native child start", code)
 	}
 	if child.ThreadID == parent.ThreadID {
 		t.Fatal("native contexts not isolated")
 	}
-	input := PreviewInput{SessionID: child.ID, Text: "只回复 **AWB_DISCUSSION_OK**。不要执行命令、修改文件或访问网络。"}
+	input := PreviewInput{SessionID: child.ID, Text: "对每条讨论只回复 **AWB_DISCUSSION_OK**。不要执行命令、修改文件或访问网络。"}
 	var preview PreviewResult
 	if code := jsonRequest(t, s, "/api/agents/preview", input, &preview); code != 200 || preview.Mode != "完整" {
 		t.Fatal("native preview", code)
@@ -75,11 +79,14 @@ func TestInstalledCodexDiscussionWriteback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(state.Threads[0].Messages) != 2 || state.Threads[0].Messages[1].Source == nil || !strings.Contains(state.Threads[0].Messages[1].Body, "AWB_DISCUSSION_OK") {
-		t.Fatal("native final reply lost")
+	for _, thread := range state.Threads {
+		if len(thread.Messages) != 2 || thread.Messages[1].Source == nil || !strings.Contains(thread.Messages[1].Body, "AWB_DISCUSSION_OK") {
+			current, _ := s.agents.Get(child.ID)
+			t.Fatalf("native reply not routed to %s: %+v", thread.ID, current.Replies)
+		}
 	}
-	if code := jsonRequest(t, s, "/api/agents/preview", input, &preview); code != 200 || preview.Mode != "增量" || strings.Contains(preview.Text, "验证讨论回复自动写回") || strings.Contains(preview.Text, "选定文档") {
+	if code := jsonRequest(t, s, "/api/agents/preview", input, &preview); code != 200 || preview.Mode != "增量" || strings.Contains(preview.Text, "验证讨论回复自动写回") || strings.Contains(preview.Text, " · agent · ") || strings.Contains(preview.Text, "选定文档") {
 		t.Fatal("native baseline not recorded", code, preview.Text)
 	}
-	t.Logf("native parent=%s child=%s model=%s; final reply written once; second preview incremental", parent.ThreadID, child.ThreadID, child.Model)
+	t.Logf("native parent=%s child=%s model=%s; one session answered two discussions, reply routed by heading; second preview incremental", parent.ThreadID, child.ThreadID, child.Model)
 }

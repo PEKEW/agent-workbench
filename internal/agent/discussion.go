@@ -10,32 +10,44 @@ import (
 	"strings"
 )
 
-// DiscussionContext 保存已预览材料的版本，送达后作为增量同步基线。
-type DiscussionContext struct {
-	InputID           string            `json:"inputId,omitempty"`
-	TurnID            string            `json:"turnId,omitempty"`
-	DeliveredSequence int               `json:"deliveredSequence,omitempty"`
-	ThreadID          string            `json:"threadId"`
-	DiscussionID      string            `json:"discussionId"`
-	DocumentID        string            `json:"documentId"`
-	DocumentRevision  string            `json:"documentRevision"`
-	AnchorHash        string            `json:"anchorHash"`
-	Messages          map[string]string `json:"messages"`
-	Full              bool              `json:"full,omitempty"`
+// DiscussionBaseline 记录一条讨论已送达的引用与消息版本。
+type DiscussionBaseline struct {
+	AnchorHash string            `json:"anchorHash"`
+	Messages   map[string]string `json:"messages"`
 }
 
-// DiscussionReply 记录可重试的最终答复；同步错误独立于原生回合结果。
+// DiscussionContext 保存已预览材料的版本，送达后作为该文档讨论会话的增量同步基线。
+type DiscussionContext struct {
+	InputID           string                        `json:"inputId,omitempty"`
+	TurnID            string                        `json:"turnId,omitempty"`
+	DeliveredSequence int                           `json:"deliveredSequence,omitempty"`
+	ThreadID          string                        `json:"threadId"`
+	DocumentID        string                        `json:"documentId"`
+	DocumentRevision  string                        `json:"documentRevision"`
+	Discussions       map[string]DiscussionBaseline `json:"discussions"`
+	Selected          []string                      `json:"selected"`
+	Full              bool                          `json:"full,omitempty"`
+}
+
+// DiscussionReply 记录可重试的最终答复；Discussions 为本回合需要回应的讨论，回写据此分配。
 type DiscussionReply struct {
-	DiscussionID string `json:"discussionId"`
-	DocumentID   string `json:"documentId"`
-	ThreadID     string `json:"threadId"`
-	TurnID       string `json:"turnId"`
-	ItemID       string `json:"itemId"`
-	Body         string `json:"body"`
-	Phase        string `json:"phase,omitempty"`
-	Synced       bool   `json:"synced"`
-	Discarded    bool   `json:"discarded,omitempty"`
-	Error        string `json:"error,omitempty"`
+	DocumentID  string   `json:"documentId"`
+	Discussions []string `json:"discussions"`
+	ThreadID    string   `json:"threadId"`
+	TurnID      string   `json:"turnId"`
+	ItemID      string   `json:"itemId"`
+	Body        string   `json:"body"`
+	Phase       string   `json:"phase,omitempty"`
+	Synced      bool     `json:"synced"`
+	Discarded   bool     `json:"discarded,omitempty"`
+	Error       string   `json:"error,omitempty"`
+}
+
+// WrittenReply 是一段回复写回讨论后的消息 ID 与内容哈希。
+type WrittenReply struct {
+	Discussion string
+	MessageID  string
+	Hash       string
 }
 
 // ContextHash 生成确定的基线摘要，防止同会话并发发送过期预览。
@@ -45,10 +57,69 @@ func ContextHash(snapshot *DiscussionContext) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// CreateDiscussion 创建或返回父工作会话在指定讨论中的独立参与会话。
-func (m *Manager) CreateDiscussion(ctx context.Context, parentID, discussionID, documentID string) (Session, error) {
-	if strings.TrimSpace(discussionID) == "" || len(discussionID) > 200 || !fs.ValidPath(documentID) {
-		return Session{}, errors.New("讨论或文档标识无效")
+// ErrUnroutedReply 表示多条讨论的回复缺少可识别的讨论标题，不能确定归属。
+var ErrUnroutedReply = errors.New("回复未按「### 讨论 <ID>」分段，无法确定归属，未自动写回；可在会话中查看并手动加入讨论")
+
+// RouteReply 按「讨论 <ID>」标题把最终回复分配到本回合需要回应的讨论；只列出一条讨论且没有标题时整条归属该讨论。
+func RouteReply(body string, discussions []string) (map[string]string, error) {
+	known := map[string]bool{}
+	for _, id := range discussions {
+		known[id] = true
+	}
+	sections, current, marked := map[string]*strings.Builder{}, "", false
+	for _, line := range strings.SplitAfter(body, "\n") {
+		if id := replyHeading(line); known[id] {
+			current, marked = id, true
+			if sections[id] == nil {
+				sections[id] = &strings.Builder{}
+			}
+			continue
+		}
+		if current != "" {
+			sections[current].WriteString(line)
+		}
+	}
+	result := map[string]string{}
+	if !marked {
+		if len(discussions) == 1 && strings.TrimSpace(body) != "" {
+			result[discussions[0]] = strings.TrimSpace(body)
+			return result, nil
+		}
+		return nil, ErrUnroutedReply
+	}
+	for id, section := range sections {
+		if text := strings.TrimSpace(section.String()); text != "" {
+			result[id] = text
+		}
+	}
+	if len(result) == 0 {
+		return nil, ErrUnroutedReply
+	}
+	return result, nil
+}
+
+// replyHeading 识别 Markdown 标题形式的「讨论 <ID>」，ID 后可跟「·」或空白分隔的说明。
+func replyHeading(line string) string {
+	text := strings.TrimSpace(line)
+	if !strings.HasPrefix(text, "#") {
+		return ""
+	}
+	text = strings.TrimSpace(strings.TrimLeft(text, "#"))
+	text, found := strings.CutPrefix(text, "讨论")
+	if !found {
+		return ""
+	}
+	text = strings.TrimLeft(text, " \t:：")
+	if cut := strings.IndexAny(text, " \t·"); cut >= 0 {
+		text = text[:cut]
+	}
+	return strings.Trim(text, "「」`*")
+}
+
+// CreateDiscussion 创建或返回父工作会话在指定文档上的讨论专用会话；同一文档的全部讨论共用该会话。
+func (m *Manager) CreateDiscussion(ctx context.Context, parentID, documentID string) (Session, error) {
+	if !fs.ValidPath(documentID) || documentID == "." {
+		return Session{}, errors.New("文档标识无效")
 	}
 	parent, err := m.Get(parentID)
 	if err != nil {
@@ -62,7 +133,7 @@ func (m *Manager) CreateDiscussion(ctx context.Context, parentID, discussionID, 
 	if len([]rune(options.Name)) > 80 {
 		options.Name = string([]rune(options.Name)[:80])
 	}
-	return m.create(ctx, options, parentID, discussionID, documentID)
+	return m.create(ctx, options, parentID, documentID)
 }
 
 // SendDiscussion 按预览基线接收讨论输入；排队不推进已送达状态。
@@ -71,7 +142,7 @@ func (m *Manager) SendDiscussion(ctx context.Context, id, text string, snapshot 
 	if err != nil {
 		return SendResult{}, err
 	}
-	if len(data) > 2*1024*1024 || snapshot.Messages == nil {
+	if len(data) > 2*1024*1024 || snapshot.Discussions == nil || len(snapshot.Selected) == 0 {
 		return SendResult{}, errors.New("讨论同步记录无效或超过 2 MiB")
 	}
 	var copy DiscussionContext
@@ -98,7 +169,7 @@ func (m *Manager) deliverDiscussionLocked(r *runtimeSession, input Input, turnID
 
 // observeDiscussionLocked 同时供实时事件和完整日志恢复使用。
 func (m *Manager) observeDiscussionLocked(r *runtimeSession, method string, params json.RawMessage) {
-	if r.DiscussionID == "" {
+	if r.ParentSessionID == "" {
 		return
 	}
 	var p struct {
@@ -136,7 +207,7 @@ func (m *Manager) observeDiscussionLocked(r *runtimeSession, method string, para
 		if r.DraftReply != nil && r.DraftReply.Phase == "final_answer" && p.Item.Phase != "final_answer" {
 			return
 		}
-		r.DraftReply = &DiscussionReply{DiscussionID: r.DiscussionID, DocumentID: r.DocumentID, ThreadID: r.ThreadID, TurnID: p.TurnID, ItemID: p.Item.ID, Body: p.Item.Text, Phase: p.Item.Phase}
+		r.DraftReply = &DiscussionReply{DocumentID: r.DocumentID, Discussions: append([]string{}, r.ActiveInput.Context.Selected...), ThreadID: r.ThreadID, TurnID: p.TurnID, ItemID: p.Item.ID, Body: p.Item.Text, Phase: p.Item.Phase}
 	case "turn/completed":
 		if p.Turn.ID == "" || p.Turn.ID != r.ActiveTurnID {
 			return
@@ -158,7 +229,7 @@ func (m *Manager) observeDiscussionLocked(r *runtimeSession, method string, para
 }
 
 // FinishReply 登记幂等回写结果，失败保留待重试记录。
-func (m *Manager) FinishReply(id, threadID, turnID, itemID, messageID, messageHash, syncError string, discarded bool) error {
+func (m *Manager) FinishReply(id, threadID, turnID, itemID string, written []WrittenReply, syncError string, discarded bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	r := m.sessions[id]
@@ -174,7 +245,11 @@ func (m *Manager) FinishReply(id, threadID, turnID, itemID, messageID, messageHa
 		reply.Discarded = discarded
 		reply.Synced = syncError == "" && !discarded
 		if reply.Synced && r.DiscussionContext != nil && r.DiscussionContext.ThreadID == threadID {
-			r.DiscussionContext.Messages[messageID] = messageHash
+			for _, w := range written {
+				if baseline, ok := r.DiscussionContext.Discussions[w.Discussion]; ok && baseline.Messages != nil {
+					baseline.Messages[w.MessageID] = w.Hash
+				}
+			}
 		}
 		return m.persistLocked(r)
 	}
@@ -182,11 +257,11 @@ func (m *Manager) FinishReply(id, threadID, turnID, itemID, messageID, messageHa
 }
 
 func (m *Manager) restoreDiscussionLocked(r *runtimeSession) error {
-	if r.DiscussionID == "" {
+	if r.ParentSessionID == "" {
 		return nil
 	}
 	// 日志是完整输入和回合的依据；不依赖网页缓存或最后 1000 条事件。
-	scratch := &runtimeSession{Session: Session{DiscussionID: r.DiscussionID, DocumentID: r.DocumentID, ThreadID: r.ThreadID}, completedTurns: map[string]bool{}}
+	scratch := &runtimeSession{Session: Session{ParentSessionID: r.ParentSessionID, DocumentID: r.DocumentID, ThreadID: r.ThreadID}, completedTurns: map[string]bool{}}
 	inputs := map[string]Input{}
 	_, err := m.readEventsObserved(r.ID, 0, 0, func(event Event) {
 		scratch.Sequence = event.Sequence

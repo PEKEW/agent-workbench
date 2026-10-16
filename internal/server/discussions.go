@@ -15,11 +15,11 @@ import (
 	"time"
 )
 
-// PreviewInput 表达任务和选定材料；专用会话自动读取讨论，正文须明确选择。
+// PreviewInput 表达任务和选定材料；文档讨论会话自动读取所列讨论，正文须明确选择。
 type PreviewInput struct {
 	Text      string   `json:"text"`
 	Documents []string `json:"documents"`
-	ThreadID  string   `json:"threadId"`
+	ThreadIDs []string `json:"threadIds"`
 	SessionID string   `json:"sessionId"`
 	Full      bool     `json:"full"`
 }
@@ -41,9 +41,18 @@ func valueHash(value any) string {
 func messageHash(message project.Message) string {
 	return valueHash(struct{ Author, Role, Intent, Body string }{message.Author, message.Role, message.Intent, message.Body})
 }
+
+// replyMessageID 为同一原生回复写入不同讨论的各段生成稳定且互不相同的消息 ID。
+func replyMessageID(source project.MessageSource, discussion string) string {
+	return "agent-" + valueHash(struct {
+		Source     project.MessageSource
+		Discussion string
+	}{source, discussion})
+}
+
 func (s *Server) createDiscussion(w http.ResponseWriter, r *http.Request) {
 	var input struct {
-		DiscussionID string `json:"discussionId"`
+		DocumentID string `json:"documentId"`
 	}
 	if !decodeAgent(w, r, &input) {
 		return
@@ -61,8 +70,8 @@ func (s *Server) createDiscussion(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	for _, thread := range state.Threads {
-		if thread.ID == input.DiscussionID {
-			session, err := m.CreateDiscussion(r.Context(), r.PathValue("id"), thread.ID, thread.DocumentID)
+		if thread.DocumentID == input.DocumentID {
+			session, err := m.CreateDiscussion(r.Context(), r.PathValue("id"), input.DocumentID)
 			if err != nil {
 				fail(w, 409, err.Error())
 				return
@@ -71,15 +80,82 @@ func (s *Server) createDiscussion(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	fail(w, 404, "讨论不存在")
+	fail(w, 404, "该文档没有讨论")
 }
+
+// writeDiscussion 输出一条讨论相对基线的变化，并返回该讨论的新基线。
+func writeDiscussion(prompt *strings.Builder, thread project.Thread, previous *agent.DiscussionBaseline, session agent.Session) agent.DiscussionBaseline {
+	next := agent.DiscussionBaseline{AnchorHash: valueHash(thread.Anchor), Messages: map[string]string{}}
+	kind, status := "批注", "待处理"
+	if thread.Kind == "memo" {
+		kind = "备忘"
+	}
+	if thread.Status == "resolved" {
+		status = "已解决"
+	}
+	var body strings.Builder
+	if previous == nil || previous.AnchorHash != next.AnchorHash {
+		if thread.Anchor != nil {
+			fmt.Fprintf(&body, "引用（rev. %d）：%s\n", thread.Anchor.Revision, thread.Anchor.Quote)
+		} else {
+			body.WriteString("整篇讨论，无段落引用。\n")
+		}
+	}
+	for _, message := range thread.Messages {
+		hash := messageHash(message)
+		next.Messages[message.ID] = hash
+		if previous != nil && previous.Messages[message.ID] == hash {
+			continue
+		}
+		// 自身回复只有与回写原文一致时才能跳过；导入后修改的消息仍须送达。
+		if previous != nil && ownReply(message, thread.ID, session) {
+			continue
+		}
+		fmt.Fprintf(&body, "\n[%s · %s · %s · %s]\n%s\n", message.Author, message.Role, message.Intent, message.ID, message.Body)
+	}
+	if previous != nil {
+		deleted := []string{}
+		for id := range previous.Messages {
+			if _, exists := next.Messages[id]; !exists {
+				deleted = append(deleted, id)
+			}
+		}
+		sort.Strings(deleted)
+		for _, id := range deleted {
+			fmt.Fprintf(&body, "\n讨论消息已删除：%s\n", id)
+		}
+	}
+	fmt.Fprintf(prompt, "\n=== 讨论 %s · %s · %s ===\n", thread.ID, kind, status)
+	if body.Len() == 0 {
+		prompt.WriteString("无新消息。\n")
+	} else {
+		prompt.WriteString(body.String())
+	}
+	return next
+}
+
+func ownReply(message project.Message, discussion string, session agent.Session) bool {
+	source := message.Source
+	if source == nil || source.SessionID != session.ID || source.ThreadID != session.ThreadID || message.Author != session.Name || message.Role != "agent" || message.Intent != "comment" {
+		return false
+	}
+	for _, reply := range session.Replies {
+		if reply.ThreadID != source.ThreadID || reply.TurnID != source.TurnID || reply.ItemID != source.ItemID {
+			continue
+		}
+		sections, err := agent.RouteReply(reply.Body, reply.Discussions)
+		return err == nil && sections[discussion] == message.Body
+	}
+	return false
+}
+
 func (s *Server) buildPreviewLocked(input PreviewInput, m *agent.Manager) (PreviewResult, error) {
 	result := PreviewResult{Mode: "普通消息"}
 	if s.project == nil {
 		return result, errors.New("请先打开项目")
 	}
-	if strings.TrimSpace(input.Text) == "" || len(input.Text) > 2*1024*1024 || len(input.Documents) > 20 {
-		return result, errors.New("请输入任务，选定文档最多 20 份")
+	if strings.TrimSpace(input.Text) == "" || len(input.Text) > 2*1024*1024 || len(input.Documents) > 20 || len(input.ThreadIDs) > 200 {
+		return result, errors.New("请输入任务，选定文档最多 20 份，讨论最多 200 条")
 	}
 	var session agent.Session
 	var baseline *agent.DiscussionContext
@@ -89,89 +165,88 @@ func (s *Server) buildPreviewLocked(input PreviewInput, m *agent.Manager) (Previ
 		if err != nil {
 			return result, err
 		}
-		if session.DiscussionID != "" {
-			if input.ThreadID != "" && input.ThreadID != session.DiscussionID {
-				return result, errors.New("请选择该会话所属讨论")
-			}
-			input.ThreadID = session.DiscussionID
+		if session.ParentSessionID != "" {
 			baseline = session.DiscussionContext
-			if baseline != nil && baseline.ThreadID != session.ThreadID {
+			if baseline != nil && (baseline.ThreadID != session.ThreadID || baseline.Discussions == nil) {
 				baseline = nil
 			}
 			if session.ContextUncertain && !input.Full {
 				return result, errors.New("上次送达结果不明，请勾选完整重发")
 			}
-		} else if input.ThreadID != "" {
-			return result, errors.New("请使用独立讨论专用会话")
+		} else if len(input.ThreadIDs) > 0 {
+			return result, errors.New("请使用文档讨论专用会话")
 		}
+	} else if len(input.ThreadIDs) > 0 {
+		return result, errors.New("请使用文档讨论专用会话")
 	}
 	result.Baseline = agent.ContextHash(session.DiscussionContext)
 	var prompt strings.Builder
 	prompt.WriteString(input.Text)
-	var thread *project.Thread
-	if input.ThreadID != "" {
+	if session.ParentSessionID != "" {
 		state, err := s.project.Collaboration()
 		if err != nil {
 			return result, err
 		}
-		for i := range state.Threads {
-			if state.Threads[i].ID == input.ThreadID {
-				thread = &state.Threads[i]
-				break
+		requested := map[string]bool{}
+		for _, id := range input.ThreadIDs {
+			requested[id] = true
+		}
+		explicit := len(requested) > 0
+		threads, current := []project.Thread{}, map[string]bool{}
+		for _, thread := range state.Threads {
+			if thread.DocumentID != session.DocumentID {
+				continue
+			}
+			current[thread.ID] = true
+			if explicit && requested[thread.ID] || !explicit && thread.Status == "open" {
+				threads = append(threads, thread)
 			}
 		}
-		if thread == nil {
-			return result, errors.New("讨论不存在")
+		if explicit && len(threads) != len(requested) {
+			return result, errors.New("所选讨论不存在或不属于该会话的文档")
+		}
+		if len(threads) == 0 {
+			return result, errors.New("该文档没有待处理的讨论")
 		}
 		full := input.Full || baseline == nil
 		result.Mode = "增量"
 		if full {
 			result.Mode = "完整"
 		}
-		snapshot := &agent.DiscussionContext{ThreadID: session.ThreadID, DiscussionID: thread.ID, DocumentID: thread.DocumentID, AnchorHash: valueHash(thread.Anchor), Messages: map[string]string{}, Full: full}
+		snapshot := &agent.DiscussionContext{ThreadID: session.ThreadID, DocumentID: session.DocumentID, Discussions: map[string]agent.DiscussionBaseline{}, Selected: []string{}, Full: full}
 		if baseline != nil {
 			snapshot.DocumentRevision = baseline.DocumentRevision
-		}
-		result.Context = snapshot
-		fmt.Fprintf(&prompt, "\n\n--- %s讨论 %s · 文档 %s ---\n", result.Mode, thread.ID, thread.DocumentID)
-		if full || baseline.AnchorHash != snapshot.AnchorHash {
-			if thread.Anchor != nil {
-				fmt.Fprintf(&prompt, "引用（rev. %d）：%s\n", thread.Anchor.Revision, thread.Anchor.Quote)
-			} else {
-				prompt.WriteString("整篇讨论，无段落引用。\n")
-			}
-		}
-		for _, message := range thread.Messages {
-			hash := messageHash(message)
-			snapshot.Messages[message.ID] = hash
-			if !full && baseline.Messages[message.ID] == hash {
-				continue
-			}
-			// 自身回复只有与回写原文一致时才能跳过；导入后修改的消息仍须送达。
-			own := false
-			if !full && message.Source != nil && message.Source.SessionID == session.ID && message.Source.ThreadID == session.ThreadID {
-				for _, reply := range session.Replies {
-					if reply.ThreadID == message.Source.ThreadID && reply.TurnID == message.Source.TurnID && reply.ItemID == message.Source.ItemID && reply.Body == message.Body && message.Author == session.Name && message.Role == "agent" && message.Intent == "comment" {
-						own = true
-						break
+			if !full {
+				for id, previous := range baseline.Discussions {
+					if current[id] {
+						snapshot.Discussions[id] = previous
 					}
 				}
 			}
-			if own {
-				continue
+		}
+		result.Context = snapshot
+		fmt.Fprintf(&prompt, "\n\n--- %s文档讨论 · %s · %d 条 ---\n", result.Mode, session.DocumentID, len(threads))
+		if len(threads) > 1 {
+			prompt.WriteString("请逐条回应以下讨论。每条回应单独成段，以「### 讨论 <ID>」开头，ID 原样保留；无需回应的讨论可以省略。\n")
+		}
+		for _, thread := range threads {
+			var previous *agent.DiscussionBaseline
+			if saved, ok := snapshot.Discussions[thread.ID]; ok && !full {
+				previous = &saved
 			}
-			fmt.Fprintf(&prompt, "\n[%s · %s · %s · %s]\n%s\n", message.Author, message.Role, message.Intent, message.ID, message.Body)
+			snapshot.Discussions[thread.ID] = writeDiscussion(&prompt, thread, previous, session)
+			snapshot.Selected = append(snapshot.Selected, thread.ID)
 		}
 		if !full {
 			deleted := []string{}
-			for id := range baseline.Messages {
-				if _, exists := snapshot.Messages[id]; !exists {
+			for id := range baseline.Discussions {
+				if !current[id] {
 					deleted = append(deleted, id)
 				}
 			}
 			sort.Strings(deleted)
 			for _, id := range deleted {
-				fmt.Fprintf(&prompt, "\n讨论消息已删除：%s\n", id)
+				fmt.Fprintf(&prompt, "\n讨论已删除：%s\n", id)
 			}
 		}
 	}
@@ -228,50 +303,63 @@ func (s *Server) syncDiscussionReplies(m *agent.Manager) {
 			if reply.Synced || reply.Discarded {
 				continue
 			}
-			source := &project.MessageSource{SessionID: session.ID, ThreadID: reply.ThreadID, TurnID: reply.TurnID, ItemID: reply.ItemID}
-			id := "agent-" + valueHash(source)
-			var savedMessage project.Message
-			discarded := false
+			source := project.MessageSource{SessionID: session.ID, ThreadID: reply.ThreadID, TurnID: reply.TurnID, ItemID: reply.ItemID}
+			sections, err := agent.RouteReply(reply.Body, reply.Discussions)
+			if err != nil {
+				if m.FinishReply(session.ID, reply.ThreadID, reply.TurnID, reply.ItemID, nil, err.Error(), true) != nil {
+					return
+				}
+				continue
+			}
+			written := []agent.WrittenReply{}
 			s.mu.Lock()
 			if s.project == nil {
 				s.mu.Unlock()
 				return
 			}
 			state, err := s.project.Collaboration()
-			found := false
 			if err == nil {
-				for i := range state.Threads {
-					thread := &state.Threads[i]
-					if thread.ID != reply.DiscussionID {
+				changed := false
+				for _, id := range reply.Discussions {
+					body, ok := sections[id]
+					if !ok {
 						continue
 					}
-					found = true
-					for _, message := range thread.Messages {
-						if message.ID == id || message.Source != nil && *message.Source == *source {
-							savedMessage = message
-							break
+					for i := range state.Threads {
+						thread := &state.Threads[i]
+						if thread.ID != id {
+							continue
 						}
+						messageID := replyMessageID(source, id)
+						saved := project.Message{}
+						for _, message := range thread.Messages {
+							if message.ID == messageID {
+								saved = message
+								break
+							}
+						}
+						if saved.ID == "" {
+							copied := source
+							saved = project.Message{ID: messageID, Author: session.Name, Role: "agent", Intent: "comment", Body: body, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Source: &copied}
+							thread.Messages = append(thread.Messages, saved)
+							changed = true
+						}
+						written = append(written, agent.WrittenReply{Discussion: id, MessageID: saved.ID, Hash: messageHash(project.Message{Author: session.Name, Role: "agent", Intent: "comment", Body: body})})
+						break
 					}
-					if savedMessage.ID == "" {
-						savedMessage = project.Message{ID: id, Author: session.Name, Role: "agent", Intent: "comment", Body: reply.Body, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Source: source}
-						thread.Messages = append(thread.Messages, savedMessage)
-						_, err = s.project.SaveCollaboration(state.Generation, state.Threads)
-					}
-					break
 				}
-				if !found {
-					discarded = true
+				if changed {
+					_, err = s.project.SaveCollaboration(state.Generation, state.Threads)
 				}
 			}
 			s.mu.Unlock()
-			errorText := ""
+			errorText, discarded := "", false
 			if err != nil {
 				errorText = err.Error()
+			} else if len(written) == 0 {
+				errorText, discarded = "目标讨论已删除；回复保留在会话中", true
 			}
-			if discarded {
-				errorText = "目标讨论已删除；回复保留在会话中"
-			}
-			if finishErr := m.FinishReply(session.ID, reply.ThreadID, reply.TurnID, reply.ItemID, savedMessage.ID, messageHash(project.Message{Author: session.Name, Role: "agent", Intent: "comment", Body: reply.Body}), errorText, discarded); finishErr != nil {
+			if m.FinishReply(session.ID, reply.ThreadID, reply.TurnID, reply.ItemID, written, errorText, discarded) != nil {
 				return
 			}
 		}

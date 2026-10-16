@@ -3,6 +3,7 @@ package server
 import (
 	"agent-workbench/internal/agent"
 	"agent-workbench/internal/project"
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -62,7 +63,7 @@ func createDiscussionFixture(t *testing.T, s *Server) (agent.Session, agent.Sess
 	if err != nil {
 		t.Fatal(err)
 	}
-	if code := jsonRequest(t, s, "/api/agents/"+parent.ID+"/discussion", map[string]string{"discussionId": "D"}, &child); code != 201 {
+	if code := jsonRequest(t, s, "/api/agents/"+parent.ID+"/discussion", map[string]string{"documentId": "PLAN.md"}, &child); code != 201 {
 		t.Fatal("create discussion", code)
 	}
 	return parent, child
@@ -73,7 +74,7 @@ func TestDiscussionPreviewIncrementalAndBackgroundWriteback(t *testing.T) {
 	if parent.ThreadID == child.ThreadID || child.ParentSessionID != parent.ID {
 		t.Fatal("not independent native threads")
 	}
-	input := PreviewInput{Text: "回应", SessionID: child.ID, ThreadID: "D", Documents: []string{"PLAN.md"}}
+	input := PreviewInput{Text: "回应", SessionID: child.ID, ThreadIDs: []string{"D"}, Documents: []string{"PLAN.md"}}
 	var preview PreviewResult
 	if code := jsonRequest(t, s, "/api/agents/preview", input, &preview); code != 200 || !strings.Contains(preview.Text, "第一条") || !strings.Contains(preview.Text, "选定文档 PLAN.md") {
 		t.Fatal("first preview", code, preview)
@@ -369,5 +370,115 @@ func TestDiscussionDocumentRequiresExplicitSelection(t *testing.T) {
 	input.Documents = []string{"PLAN.md"}
 	if jsonRequest(t, s, "/api/agents/preview", input, &preview) != 200 || strings.Contains(preview.Text, "选定文档") {
 		t.Fatal("unchanged body resent", preview.Text)
+	}
+}
+
+func TestDocumentDiscussionsShareOneSessionAndRouteReplies(t *testing.T) {
+	s, _ := discussionServer(t)
+	parent, child := createDiscussionFixture(t, s)
+	s.mu.Lock()
+	state, err := s.project.Collaboration()
+	if err == nil {
+		now := time.Now().UTC().Format(time.RFC3339Nano)
+		state.Threads = append(state.Threads,
+			project.Thread{ID: "E", DocumentID: "PLAN.md", Kind: "comment", Status: "open", Anchor: &project.Anchor{Quote: "当前计划", Revision: 1}, Messages: []project.Message{{ID: "E1", Author: "我", Role: "human", Intent: "comment", Body: "第二条讨论", CreatedAt: now}}},
+			project.Thread{ID: "F", DocumentID: "PLAN.md", Kind: "comment", Status: "resolved", Messages: []project.Message{{ID: "F1", Author: "我", Role: "human", Intent: "comment", Body: "已解决的讨论", CreatedAt: now}}},
+			project.Thread{ID: "G", DocumentID: "README.md", Kind: "comment", Status: "open", Messages: []project.Message{{ID: "G1", Author: "我", Role: "human", Intent: "comment", Body: "其他文档", CreatedAt: now}}})
+		_, err = s.project.SaveCollaboration(state.Generation, state.Threads)
+	}
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var again, other agent.Session
+	if jsonRequest(t, s, "/api/agents/"+parent.ID+"/discussion", map[string]string{"documentId": "PLAN.md"}, &again) != 201 || again.ID != child.ID {
+		t.Fatal("same document must reuse one session")
+	}
+	if jsonRequest(t, s, "/api/agents/"+parent.ID+"/discussion", map[string]string{"documentId": "README.md"}, &other) != 201 || other.ID == child.ID {
+		t.Fatal("other document must use its own session")
+	}
+	if code := jsonRequest(t, s, "/api/agents/"+parent.ID+"/discussion", map[string]string{"documentId": "docs/none.md"}, nil); code != 404 {
+		t.Fatal("document without discussions accepted", code)
+	}
+	if code := jsonRequest(t, s, "/api/agents/preview", PreviewInput{Text: "回应", SessionID: child.ID, ThreadIDs: []string{"G"}}, nil); code != 400 {
+		t.Fatal("thread from another document accepted", code)
+	}
+	input := PreviewInput{Text: "回应", SessionID: child.ID}
+	var preview PreviewResult
+	if code := jsonRequest(t, s, "/api/agents/preview", input, &preview); code != 200 || !strings.Contains(preview.Text, "=== 讨论 D ") || !strings.Contains(preview.Text, "=== 讨论 E ") || strings.Contains(preview.Text, "已解决的讨论") || strings.Contains(preview.Text, "其他文档") || !strings.Contains(preview.Text, "### 讨论 <ID>") {
+		t.Fatal("default preview must list open threads of the document", code, preview.Text)
+	}
+	if len(preview.Context.Selected) != 2 {
+		t.Fatal(preview.Context.Selected)
+	}
+	if jsonRequest(t, s, "/api/agents/"+child.ID+"/input", map[string]any{"preview": input, "checksum": preview.Checksum}, nil) != 200 {
+		t.Fatal("send")
+	}
+	current := waitReply(t, s, child.ID, func(a agent.Session) bool { return len(a.Replies) == 1 && a.Replies[0].Synced })
+	s.mu.RLock()
+	state, _ = s.project.Collaboration()
+	s.mu.RUnlock()
+	bodies := map[string]string{}
+	for _, thread := range state.Threads {
+		last := thread.Messages[len(thread.Messages)-1]
+		if last.Role == "agent" {
+			bodies[thread.ID] = last.Body
+		}
+	}
+	if bodies["D"] != "协议测试回复 D" || bodies["E"] != "协议测试回复 E" || len(bodies) != 2 {
+		t.Fatalf("reply not routed per discussion: %v", bodies)
+	}
+	if len(current.DiscussionContext.Discussions) != 2 {
+		t.Fatal("baseline must cover both discussions", current.DiscussionContext)
+	}
+	s.syncDiscussionReplies(s.agents)
+	s.mu.RLock()
+	state, _ = s.project.Collaboration()
+	s.mu.RUnlock()
+	if len(state.Threads[0].Messages) != 2 || len(state.Threads[1].Messages) != 2 {
+		t.Fatal("duplicate routed writeback")
+	}
+	input.ThreadIDs = []string{"E"}
+	if code := jsonRequest(t, s, "/api/agents/preview", input, &preview); code != 200 || preview.Mode != "增量" || !strings.Contains(preview.Text, "=== 讨论 E ") || strings.Contains(preview.Text, "=== 讨论 D ") || !strings.Contains(preview.Text, "无新消息") || strings.Contains(preview.Text, "协议测试回复") || strings.Contains(preview.Text, "### 讨论 <ID>") {
+		t.Fatal("explicit single discussion must be incremental without own replies", code, preview.Text)
+	}
+	if _, ok := preview.Context.Discussions["D"]; !ok {
+		t.Fatal("unselected discussion baseline dropped")
+	}
+}
+
+func TestUnroutedMultiDiscussionReplyIsNotGuessed(t *testing.T) {
+	s, _ := discussionServer(t)
+	_, child := createDiscussionFixture(t, s)
+	s.mu.Lock()
+	state, err := s.project.Collaboration()
+	if err == nil {
+		state.Threads = append(state.Threads, project.Thread{ID: "E", DocumentID: "PLAN.md", Kind: "comment", Status: "open", Messages: []project.Message{{ID: "E1", Author: "我", Role: "human", Intent: "comment", Body: "第二条", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}}})
+		_, err = s.project.SaveCollaboration(state.Generation, state.Threads)
+	}
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = s.agents.FinishReply(child.ID, "", "", "", nil, "", false); err == nil {
+		t.Fatal("unknown reply accepted")
+	}
+	session, _ := s.agents.Get(child.ID)
+	snapshot := agent.DiscussionContext{ThreadID: session.ThreadID, DocumentID: "PLAN.md", Discussions: map[string]agent.DiscussionBaseline{"D": {Messages: map[string]string{}}, "E": {Messages: map[string]string{}}}, Selected: []string{"D", "E"}}
+	// 协议进程只在输入中列出两条讨论标题时分段回复；这里的输入不含标题，模拟模型未按要求分段。
+	if _, err = s.agents.SendDiscussion(context.Background(), child.ID, "回应", snapshot, agent.ContextHash(nil)); err != nil {
+		t.Fatal(err)
+	}
+	current := waitReply(t, s, child.ID, func(a agent.Session) bool { return len(a.Replies) == 1 && a.Replies[0].Discarded })
+	if current.Replies[0].Error != agent.ErrUnroutedReply.Error() {
+		t.Fatal(current.Replies[0].Error)
+	}
+	s.mu.RLock()
+	state, _ = s.project.Collaboration()
+	s.mu.RUnlock()
+	for _, thread := range state.Threads {
+		if len(thread.Messages) != 1 {
+			t.Fatal("unrouted reply written to a discussion", thread.ID)
+		}
 	}
 }

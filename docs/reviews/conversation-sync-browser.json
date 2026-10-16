@@ -13,6 +13,7 @@
   "visibleWaitingStatus": true,
   "discussionParticipantStates": true,
   "batchIndependentDelivery": true,
+  "documentScopedDiscussionSessions": true,
   "batchPreviewWithoutSend": true,
   "batchReplyRouting": true,
   "batchNoDuplicateSubmit": true,

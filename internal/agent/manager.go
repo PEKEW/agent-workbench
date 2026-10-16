@@ -37,7 +37,6 @@ type Request struct {
 // Session 区分项目记录与当前进程内真实运行状态。
 type Session struct {
 	ParentSessionID   string             `json:"parentSessionId,omitempty"`
-	DiscussionID      string             `json:"discussionId,omitempty"`
 	DocumentID        string             `json:"documentId,omitempty"`
 	DiscussionContext *DiscussionContext `json:"discussionContext,omitempty"`
 	ContextUncertain  bool               `json:"contextUncertain,omitempty"`
@@ -163,21 +162,21 @@ func validateOptions(o *StartOptions) error {
 	return nil
 }
 func (m *Manager) Create(ctx context.Context, o StartOptions) (Session, error) {
-	return m.create(ctx, o, "", "", "")
+	return m.create(ctx, o, "", "")
 }
-func (m *Manager) create(ctx context.Context, o StartOptions, parentID, discussionID, documentID string) (Session, error) {
+func (m *Manager) create(ctx context.Context, o StartOptions, parentID, documentID string) (Session, error) {
 	if err := validateOptions(&o); err != nil {
 		return Session{}, err
 	}
 	m.mu.Lock()
 	if parentID != "" {
 		parent := m.sessions[parentID]
-		if parent == nil || parent.DiscussionID != "" {
+		if parent == nil || parent.ParentSessionID != "" {
 			m.mu.Unlock()
 			return Session{}, errors.New("请选择一个工作会话作为参与 Agent")
 		}
 		for _, existing := range m.sessions {
-			if existing.ParentSessionID == parentID && existing.DiscussionID == discussionID {
+			if existing.ParentSessionID == parentID && existing.DocumentID == documentID {
 				m.mu.Unlock()
 				return cloneSession(existing.Session), nil
 			}
@@ -198,7 +197,7 @@ func (m *Manager) create(ctx context.Context, o StartOptions, parentID, discussi
 		return Session{}, errors.New("最多同时运行 8 个会话")
 	}
 	r := &runtimeSession{Session: Session{ID: rand.Text(), Name: o.Name, Options: o, State: "starting", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Queue: []Input{}, Requests: []Request{}}, answering: map[string]bool{}, completedTurns: map[string]bool{}, recent: []Event{}}
-	r.ParentSessionID, r.DiscussionID, r.DocumentID = parentID, discussionID, documentID
+	r.ParentSessionID, r.DocumentID = parentID, documentID
 	m.sessions[r.ID] = r
 	if err := m.persistLocked(r); err != nil {
 		delete(m.sessions, r.ID)
@@ -348,8 +347,8 @@ func (m *Manager) send(ctx context.Context, id, text string, snapshot *Discussio
 		m.mu.Unlock()
 		return SendResult{}, errors.New("会话未连接，请先创建或恢复")
 	}
-	if r.DiscussionID != "" {
-		if snapshot == nil || snapshot.DiscussionID != r.DiscussionID || snapshot.DocumentID != r.DocumentID || snapshot.ThreadID != r.ThreadID {
+	if r.ParentSessionID != "" {
+		if snapshot == nil || snapshot.DocumentID != r.DocumentID || snapshot.ThreadID != r.ThreadID {
 			m.mu.Unlock()
 			return SendResult{}, errors.New("讨论专用会话须发送与其关联的上下文预览")
 		}

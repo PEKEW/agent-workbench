@@ -5,7 +5,7 @@ let agentMode=false;
 let agentPolling=false;
 let agentTimer=null;
 let agentPreview=null;
-let forwardedThread='';
+let selectedThreads=[];
 let agentSending=false;
 let renderedRequestSignature="";
 let renderedEventSignature="";
@@ -32,7 +32,7 @@ function renderAgentStatus(){
  indicator.textContent=agentStatusError?'状态未同步':running||waiting?`执行中 ${running} · 等待响应 ${waiting}`:`${agentSessions.length} 个会话 · 无执行中任务`;
  indicator.dataset.state=agentStatusError?'disconnected':waiting?'waiting':running?'running':'idle';indicator.title=agentStatusError||'点击查看会话执行状态';
  for(const container of document.querySelectorAll('[data-discussion-sessions]')){
-  const sessions=agentSessions.filter(s=>s.discussionId===container.dataset.discussionSessions);container.replaceChildren();
+  const documentId=collaboration?.threads.find(t=>t.id===container.dataset.discussionSessions)?.documentId;const sessions=agentSessions.filter(s=>s.parentSessionId&&s.documentId===documentId);container.replaceChildren();
   for(const session of sessions){const button=document.createElement('button');button.type='button';button.className='session-status-link';button.dataset.state=agentStatusError?'disconnected':session.state;button.textContent=`${session.name} · ${agentStatusError?'状态未同步':agentStatusText(session)}`;button.onclick=()=>{selectAgent(session.id);if(switchWorkbench('agents')){renderAgentSessions();renderAgent();refreshAgents().catch(showError);}};container.append(button);}
  }
  if(typeof renderSessionInteractions==='function')renderSessionInteractions();
@@ -72,7 +72,7 @@ async function refreshAgents(){
 }
 function renderAgentSessions(){
   $('agent-list').replaceChildren();
-  for(const session of agentSessions){const button=document.createElement('button');button.className='file-button';button.classList.toggle('active',session.id===selectedAgent);button.dataset.agent=session.id;const name=document.createElement('strong');name.textContent=session.name;const detail=document.createElement('small');detail.textContent=session.discussionId?`${session.documentId} · ${(collaboration?.threads.find(t=>t.id===session.discussionId)?.anchor?.quote||collaboration?.threads.find(t=>t.id===session.discussionId)?.messages[0]?.body||session.discussionId).slice(0,50)}`:session.model||'Codex';const status=document.createElement('span');status.className='agent-state-badge';status.dataset.state=agentStatusError?'disconnected':session.state;status.textContent=agentStatusError?'状态未同步':agentStatusText(session);button.append(name,status,detail);button.onclick=()=>{selectAgent(session.id);agentPreview=null;$('agent-preview-panel').hidden=true;renderAgentSessions();renderAgent();refreshAgents();};$('agent-list').append(button);}
+  for(const session of agentSessions){const button=document.createElement('button');button.className='file-button';button.classList.toggle('active',session.id===selectedAgent);button.dataset.agent=session.id;const name=document.createElement('strong');name.textContent=session.name;const detail=document.createElement('small');detail.textContent=session.parentSessionId?`${session.documentId} · 文档讨论 ${(collaboration?.threads||[]).filter(t=>t.documentId===session.documentId).length} 条`:session.model||'Codex';const status=document.createElement('span');status.className='agent-state-badge';status.dataset.state=agentStatusError?'disconnected':session.state;status.textContent=agentStatusError?'状态未同步':agentStatusText(session);button.append(name,status,detail);button.onclick=()=>{selectAgent(session.id);agentPreview=null;$('agent-preview-panel').hidden=true;renderAgentSessions();renderAgent();refreshAgents();};$('agent-list').append(button);}
   if(!agentSessions.length){const text=document.createElement('p');text.textContent='还没有接入的会话。点击上方启动 Codex。';$('agent-list').append(text);}
 }
 function renderAgent(){
@@ -88,15 +88,16 @@ function renderAgent(){
   $('continue-agent-queue').disabled=session?.state!=='idle'||!session?.queuePaused||!!session?.contextUncertain;
   renderNativeRequests(session);renderAgentEvents();renderAgentDiscussion(session);updateAgentInputContext();updateAgentSendButton();if(typeof renderSessionInteractions==='function')renderSessionInteractions();
 }
+function documentThreads(session){return (collaboration?.threads||[]).filter(t=>t.documentId===session?.documentId);}
 function updateAgentInputContext(){
- const session=getAgent(),bound=!!session?.discussionId,enabled=bound||selectedKind==='document'&&!!selected;
+ const session=getAgent(),bound=!!session?.parentSessionId,enabled=bound||selectedKind==='document'&&!!selected;
  $('include-current-document').disabled=!enabled;if(!enabled)$('include-current-document').checked=false;
  $('agent-document-label').textContent=bound?session.documentId:enabled?selected:'';
- const thread=collaboration?.threads.find(t=>t.id===(session?.discussionId||forwardedThread));
- $('agent-thread-context').textContent=thread?`讨论：${thread.documentId} · ${thread.messages.length} 条消息`:bound?'所属讨论已删除':'';
- $('clear-agent-thread').hidden=bound||!forwardedThread;$('full-context-option').hidden=!bound;
+ const threads=bound?documentThreads(session):[];selectedThreads=selectedThreads.filter(id=>threads.some(t=>t.id===id));
+ $('agent-thread-context').textContent=!bound?'':!threads.length?'该文档的讨论已全部删除':selectedThreads.length?`回应 ${selectedThreads.length} 条指定讨论`:`回应全部待处理讨论（${threads.filter(t=>t.status==='open').length} 条）`;
+ $('clear-agent-thread').hidden=!bound||!selectedThreads.length;$('full-context-option').hidden=!bound;
 }
-function previewSignature(){const session=getAgent();return JSON.stringify({text:$('agent-message').value,documents:$('include-current-document').checked?[session?.discussionId?session.documentId:selected]:[],threadId:session?.discussionId||forwardedThread,sessionId:selectedAgent,full:!!$('full-agent-context').checked});}
+function previewSignature(){const session=getAgent(),bound=!!session?.parentSessionId;return JSON.stringify({text:$('agent-message').value,documents:$('include-current-document').checked?[bound?session.documentId:selected]:[],threadIds:bound?selectedThreads:[],sessionId:selectedAgent,full:!!$('full-agent-context').checked});}
 function updateAgentSendButton(){
  const session=getAgent(),connected=session&&['idle','running','waiting'].includes(session.state),previewed=agentPreview&&agentPreview.signature===previewSignature();
  $('send-agent-input').disabled=agentSending||!connected||!previewed;
@@ -105,7 +106,7 @@ function updateAgentSendButton(){
 }
 function invalidateAgentPreview(){agentPreview=null;$('agent-preview-panel').hidden=true;updateAgentSendButton();}
 $('agent-message').oninput=invalidateAgentPreview;$('include-current-document').onchange=invalidateAgentPreview;$('full-agent-context').onchange=invalidateAgentPreview;
-$('clear-agent-thread').onclick=()=>{forwardedThread='';updateAgentInputContext();invalidateAgentPreview();};
+$('clear-agent-thread').onclick=()=>{selectedThreads=[];renderedDiscussionSignature='';renderAgentDiscussion(getAgent());updateAgentInputContext();invalidateAgentPreview();};
 async function previewAgentInput(){
   if(!$('agent-message').value.trim())throw new Error('请输入任务或消息');
   const signature=previewSignature(),input=JSON.parse(signature);const preview=await api('agents/preview',input);
@@ -116,7 +117,7 @@ $('preview-agent-input').onclick=async()=>{try{await previewAgentInput();showErr
 $('agent-input-form').onsubmit=async event=>{
   event.preventDefault();if(agentSending||!agentPreview||agentPreview.signature!==previewSignature())return;
   const id=selectedAgent,text=agentPreview.text,submittedSignature=agentPreview.signature,checksum=agentPreview.checksum;agentSending=true;updateAgentSendButton();
-  try{const result=await api(`agents/${encodeURIComponent(id)}/input`,checksum?{preview:JSON.parse(submittedSignature),checksum}:{text});$('agent-input-status').textContent=result.queued?'已加入队列':'已发送到 Codex';if(selectedAgent===id&&previewSignature()===submittedSignature){$('agent-message').value='';agentDrafts.delete(id);agentPreview=null;$('agent-preview-panel').hidden=true;forwardedThread='';updateAgentInputContext();}else if(agentDrafts.get(id)?.signature===submittedSignature){agentDrafts.delete(id);}showError(null);await refreshAgents();}
+  try{const result=await api(`agents/${encodeURIComponent(id)}/input`,checksum?{preview:JSON.parse(submittedSignature),checksum}:{text});$('agent-input-status').textContent=result.queued?'已加入队列':'已发送到 Codex';if(selectedAgent===id&&previewSignature()===submittedSignature){$('agent-message').value='';agentDrafts.delete(id);agentPreview=null;$('agent-preview-panel').hidden=true;selectedThreads=[];renderedDiscussionSignature='';updateAgentInputContext();}else if(agentDrafts.get(id)?.signature===submittedSignature){agentDrafts.delete(id);}showError(null);await refreshAgents();}
   catch(error){$('agent-input-status').textContent='输入已保留';showError(error);}
   finally{agentSending=false;updateAgentSendButton();}
 };
@@ -125,14 +126,15 @@ function discussionTaskInstruction(thread){
  return latest+'\n\n请结合引用和讨论背景处理以上用户要求。若要求实现或修改，请实际实施并验证；若要求讨论，请回应并说明依据。仅完成分析时应明确说明尚未实施。';
 }
 function forwardThreadToAgent(id){
- const parents=agentSessions.filter(s=>!s.discussionId);
+ const parents=agentSessions.filter(s=>!s.parentSessionId);
  if(!parents.length){switchWorkbench('agents');showError(new Error('请先启动一个工作会话，再选择它参与讨论'));return;}
  if(!leaveEditor())return;
- openDiscussionDialog('选择参与 Agent',`<label>工作会话<select id="discussion-parent-agent">${parents.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label><p>为这个 Agent 创建或打开独立讨论会话；不会继承工作会话的完整历史，也不会自动发送任务。</p>`,async()=>{
-  const session=await api(`agents/${encodeURIComponent($('discussion-parent-agent').value)}/discussion`,{discussionId:id});
+ openDiscussionDialog('选择参与 Agent',`<label>工作会话<select id="discussion-parent-agent">${parents.map(s=>`<option value="${esc(s.id)}">${esc(s.name)}</option>`).join('')}</select></label><p>为这个 Agent 创建或打开该文档的讨论会话；同一文档的批注共用该会话，不继承工作会话的完整历史，也不会自动发送任务。</p>`,async()=>{
+  const thread=collaboration?.threads.find(t=>t.id===id);if(!thread)throw new Error('讨论已删除');
+  const session=await api(`agents/${encodeURIComponent($('discussion-parent-agent').value)}/discussion`,{documentId:thread.documentId});
   agentSessions=agentSessions.filter(s=>s.id!==session.id).concat(session);selectAgent(session.id);switchWorkbench('agents');
-  if(!$('agent-message').value.trim())$('agent-message').value=discussionTaskInstruction(collaboration?.threads.find(t=>t.id===id));
-  forwardedThread='';invalidateAgentPreview();renderAgentSessions();renderAgent();await previewAgentInput();
+  if(!$('agent-message').value.trim())$('agent-message').value=discussionTaskInstruction(thread);
+  selectedThreads=[id];renderedDiscussionSignature='';invalidateAgentPreview();renderAgentSessions();renderAgent();await previewAgentInput();
  },'打开讨论会话');
  const preferred=getAgent()?.parentSessionId||selectedAgent;if(parents.some(s=>s.id===preferred))$('discussion-parent-agent').value=preferred;
 }
@@ -211,7 +213,7 @@ function renderAgentEvents(){
    if(!dialogue&&entry.event)details('原始事件 #'+entry.sequence,JSON.stringify(entry.event,null,2),entry.key+':raw');
    if(entry.turnID){const locate=document.createElement('button');locate.className='small-button';locate.textContent=dialogue?'定位执行回合':'定位对话回合';locate.onclick=()=>{const other=$(dialogue?'agent-execution':'agent-conversation');for(const candidate of other.querySelectorAll('[data-turn]'))candidate.classList.toggle('turn-highlight',candidate.dataset.turn===entry.turnID);Array.from(other.querySelectorAll('[data-turn]')).find(el=>el.dataset.turn===entry.turnID)?.scrollIntoView({block:'nearest'});};card.append(locate);}
    if(dialogue){const copy=document.createElement('button');copy.className='small-button';copy.textContent='复制原文';copy.onclick=()=>navigator.clipboard.writeText(entry.body+(entry.context||'')).catch(showError);card.append(copy);}
-   if(dialogue&&entry.role==='agent'&&entry.complete&&!getAgent()?.discussionId){const session=getAgent(),button=document.createElement('button');button.className='small-button';button.dataset.addReply='';button.textContent='加入文档讨论';button.onclick=()=>addAgentReplyToDiscussion(session,entry);card.append(button);}
+   if(dialogue&&entry.role==='agent'&&entry.complete){const session=getAgent(),button=document.createElement('button');button.className='small-button';button.dataset.addReply='';button.textContent='加入文档讨论';button.onclick=()=>addAgentReplyToDiscussion(session,entry);card.append(button);}
    container.append(card);
   }
   if(!records.length){const empty=document.createElement('p');empty.className='empty-list';empty.textContent=dialogue?'发送任务后，对话在这里显示。':'命令、文件修改和回合状态在这里显示。';container.append(empty);}
@@ -236,7 +238,7 @@ window.addEventListener('beforeunload',event=>{if(agentSending||creatingAgent||$
 let fullLogID='';let fullLogStarts=[0];let fullLogPage=0;let fullLogLast=0;let fullLogBusy=false;let fullLogGeneration=0;
 function selectAgent(id){
  if(id===selectedAgent)return;
- if(selectedAgent){agentDrafts.set(selectedAgent,{text:$('agent-message').value,include:$('include-current-document').checked,full:$('full-agent-context').checked,forwarded:forwardedThread,signature:previewSignature()});agentReplyDrafts.set(selectedAgent,$('agent-discussion-reply').value);}const draft=agentDrafts.get(id);$('agent-message').value=draft?.text||'';$('include-current-document').checked=!!draft?.include;$('full-agent-context').checked=!!draft?.full;forwardedThread=draft?.forwarded||'';$('agent-discussion-reply').value=agentReplyDrafts.get(id)||'';agentPreview=null;$('agent-preview-panel').hidden=true;selectedAgent=id;fullLogGeneration++;fullLogID='';fullLogStarts=[0];fullLogPage=0;fullLogLast=0;fullLogBusy=false;
+ if(selectedAgent){agentDrafts.set(selectedAgent,{text:$('agent-message').value,include:$('include-current-document').checked,full:$('full-agent-context').checked,threads:[...selectedThreads],signature:previewSignature()});agentReplyDrafts.set(selectedAgent,$('agent-discussion-reply').value);}const draft=agentDrafts.get(id);$('agent-message').value=draft?.text||'';$('include-current-document').checked=!!draft?.include;$('full-agent-context').checked=!!draft?.full;selectedThreads=[...(draft?.threads||[])];renderedDiscussionSignature='';$('agent-discussion-reply').value=agentReplyDrafts.get(id)||'';agentPreview=null;$('agent-preview-panel').hidden=true;selectedAgent=id;fullLogGeneration++;fullLogID='';fullLogStarts=[0];fullLogPage=0;fullLogLast=0;fullLogBusy=false;
  $('agent-history-content').textContent='';$('agent-history-range').textContent='';$('agent-history-next').disabled=true;$('agent-history-previous').disabled=true;
  if($('agent-history').open&&id)readFullLog(0);
 }
@@ -256,32 +258,47 @@ $('agent-history-next').onclick=()=>{if(fullLogBusy)return;fullLogStarts=fullLog
 $('agent-history-previous').onclick=()=>{if(fullLogBusy||fullLogPage===0)return;fullLogPage--;readFullLog(fullLogStarts[fullLogPage]);};
 
 function renderAgentDiscussion(session){
- const bound=!!session?.discussionId;$('agent-bound-discussion').hidden=!bound;if(!bound){renderedDiscussionSignature='';return;}
- const thread=collaboration?.threads.find(t=>t.id===session.discussionId),parent=agentSessions.find(s=>s.id===session.parentSessionId);
- $('agent-discussion-title').textContent='关联讨论';$('agent-discussion-origin').textContent=`${session.documentId} · 参与者 ${parent?.name||session.parentSessionId}`;
- $('save-agent-discussion-reply').disabled=!thread||discussionBusy;$('return-to-work').disabled=!thread||!parent;
+ const bound=!!session?.parentSessionId;$('agent-bound-discussion').hidden=!bound;if(!bound){renderedDiscussionSignature='';return;}
+ const threads=documentThreads(session),parent=agentSessions.find(s=>s.id===session.parentSessionId);
+ $('agent-discussion-title').textContent='文档讨论';$('agent-discussion-origin').textContent=`${session.documentId} · ${threads.length} 条讨论 · 参与者 ${parent?.name||session.parentSessionId}`;
+ $('save-agent-discussion-reply').disabled=!threads.length||discussionBusy;$('return-to-work').disabled=!threads.length||!parent;
  const failed=(session.replies||[]).filter(reply=>reply.error);const pending=(session.replies||[]).filter(reply=>!reply.synced&&!reply.discarded);
- $('agent-discussion-sync').textContent=!thread?'目标讨论已删除；会话回复仍保留。':failed.length?failed.map(reply=>reply.error).join('\n'):pending.length?'最终回复正在同步到讨论…':'最终回复由本地服务自动写回讨论。';
- const signature=JSON.stringify([session.id,thread]);if(signature===renderedDiscussionSignature)return;renderedDiscussionSignature=signature;
+ $('agent-discussion-sync').textContent=!threads.length?'该文档的讨论已全部删除；会话回复仍保留。':failed.length?failed.map(reply=>reply.error).join('\n'):pending.length?'最终回复正在写回讨论…':'最终回复按「讨论 <ID>」标题自动写回各条讨论。';
+ const signature=JSON.stringify([session.id,threads,selectedThreads]);if(signature===renderedDiscussionSignature)return;renderedDiscussionSignature=signature;
+ const target=$('agent-discussion-thread'),previous=target.value;target.replaceChildren();
+ for(const thread of threads){const option=document.createElement('option');option.value=thread.id;option.textContent=(thread.anchor?.quote||thread.messages[0]?.body||thread.id).slice(0,40);target.append(option);}
+ if(threads.some(t=>t.id===previous))target.value=previous;else if(selectedThreads.length)target.value=selectedThreads[0];
  const container=$('agent-discussion-messages'),scroll=container.scrollTop;container.replaceChildren();
- if(thread?.anchor){const quote=document.createElement('blockquote');quote.textContent=thread.anchor.quote;container.append(quote);}
- for(const message of thread?.messages||[]){const card=document.createElement('section');card.className='message';card.dataset.messageId=message.id;const label=document.createElement('div');label.className='message-meta';label.textContent=`${message.author} · ${message.intent==='decision'?'结论':message.intent==='rebuttal'?'Rebuttal':message.role==='agent'?'Agent':'用户'}`;const body=document.createElement('div');body.className='markdown-message';renderProjectMarkdown(body,message.body,session.documentId);card.append(label,body);container.append(card);}
+ for(const thread of threads){
+  const section=document.createElement('section');section.className='bound-thread';section.dataset.thread=thread.id;
+  const pick=document.createElement('label');pick.className='bound-thread-pick';const box=document.createElement('input');box.type='checkbox';box.checked=selectedThreads.includes(thread.id);box.dataset.pickThread=thread.id;
+  pick.append(box,` ${thread.kind==='memo'?'备忘':'批注'} · ${thread.status==='resolved'?'已解决':'待处理'} · 本次回应`);section.append(pick);
+  if(thread.anchor){const quote=document.createElement('blockquote');quote.textContent=thread.anchor.quote;section.append(quote);}
+  for(const message of thread.messages){const card=document.createElement('div');card.className='message';card.dataset.messageId=message.id;const label=document.createElement('div');label.className='message-meta';label.textContent=`${message.author} · ${message.intent==='decision'?'结论':message.intent==='rebuttal'?'Rebuttal':message.role==='agent'?'Agent':'用户'}`;const body=document.createElement('div');body.className='markdown-message';renderProjectMarkdown(body,message.body,session.documentId);card.append(label,body);section.append(card);}
+  container.append(section);
+ }
  container.scrollTop=scroll;
 }
+$('agent-discussion-messages').addEventListener('change',event=>{
+ const id=event.target.dataset.pickThread;if(!id)return;
+ selectedThreads=event.target.checked?[...new Set([...selectedThreads,id])]:selectedThreads.filter(t=>t!==id);
+ renderedDiscussionSignature='';renderAgentDiscussion(getAgent());updateAgentInputContext();invalidateAgentPreview();
+});
 $('open-agent-document').onclick=()=>{const session=getAgent(),target=entries().find(item=>item.path===session?.documentId);if(target&&switchWorkbench('documents'))loadEntry(target);};
 $('agent-discussion-reply').oninput=()=>agentReplyDrafts.set(selectedAgent,$('agent-discussion-reply').value);
 $('agent-discussion-form').onsubmit=async event=>{
- event.preventDefault();const session=getAgent(),body=$('agent-discussion-reply').value.trim(),submitted=$('agent-discussion-reply').value;
- if(!session?.discussionId||!body||discussionBusy)return;
- try{const next=clone(collaboration.threads),thread=next.find(t=>t.id===session.discussionId);if(!thread)throw Error('讨论已删除');thread.messages.push(makeMessage(body));await persistThreads(next);if(selectedAgent===session.id&&$('agent-discussion-reply').value===submitted){$('agent-discussion-reply').value='';agentReplyDrafts.delete(session.id);}else if(agentReplyDrafts.get(session.id)===submitted){agentReplyDrafts.delete(session.id);}renderAgentDiscussion(getAgent());invalidateAgentPreview();showError(null);}
+ event.preventDefault();const session=getAgent(),body=$('agent-discussion-reply').value.trim(),submitted=$('agent-discussion-reply').value,threadID=$('agent-discussion-thread').value;
+ if(!session?.parentSessionId||!body||discussionBusy)return;
+ try{const next=clone(collaboration.threads),thread=next.find(t=>t.id===threadID&&t.documentId===session.documentId);if(!thread)throw Error('讨论已删除');thread.messages.push(makeMessage(body));await persistThreads(next);if(selectedAgent===session.id&&$('agent-discussion-reply').value===submitted){$('agent-discussion-reply').value='';agentReplyDrafts.delete(session.id);}else if(agentReplyDrafts.get(session.id)===submitted){agentReplyDrafts.delete(session.id);}renderAgentDiscussion(getAgent());invalidateAgentPreview();showError(null);}
  catch(error){showError(error);}
 };
 $('return-to-work').onclick=()=>{
- const session=getAgent(),thread=collaboration?.threads.find(t=>t.id===session?.discussionId);if(!thread||!session.parentSessionId)return;
- const defaultIDs=new Set(thread.messages.filter(m=>m.intent==='decision').map(m=>m.id));if(!defaultIDs.size&&thread.messages.length)defaultIDs.add(thread.messages.at(-1).id);
- openDiscussionDialog('选择送回工作会话的结论与依据',thread.messages.map(m=>`<label><input type="checkbox" data-return-message="${esc(m.id)}" ${defaultIDs.has(m.id)?'checked':''}> ${esc(m.author+' · '+m.body.slice(0,180))}</label>`).join('')+'<p>仅预填所选材料，不自动发送。</p>',async()=>{
+ const session=getAgent(),threads=documentThreads(session);if(!threads.length||!session.parentSessionId)return;
+ const messages=threads.flatMap(thread=>thread.messages.map(message=>({thread,message})));
+ const defaultIDs=new Set(messages.filter(({message})=>message.intent==='decision').map(({message})=>message.id));if(!defaultIDs.size)for(const thread of threads)if(thread.messages.length)defaultIDs.add(thread.messages.at(-1).id);
+ openDiscussionDialog('选择送回工作会话的结论与依据',threads.map(thread=>`<fieldset><legend>${esc((thread.anchor?.quote||thread.messages[0]?.body||thread.id).slice(0,60))}</legend>`+thread.messages.map(m=>`<label><input type="checkbox" data-return-message="${esc(m.id)}" ${defaultIDs.has(m.id)?'checked':''}> ${esc(m.author+' · '+m.body.slice(0,180))}</label>`).join('')+'</fieldset>').join('')+'<p>仅预填所选材料，不自动发送。</p>',async()=>{
   const ids=new Set(Array.from($('discussion-dialog-body').querySelectorAll('[data-return-message]:checked')).map(input=>input.dataset.returnMessage));if(!ids.size)throw Error('至少选择一条结论或依据');
-  const text=`请结合以下讨论结论与依据处理项目任务。\n来源：${session.documentId} · 讨论 ${thread.id}\n\n`+thread.messages.filter(m=>ids.has(m.id)).map(m=>`[${m.author} · ${m.intent}]\n${m.body}`).join('\n\n');
-  selectAgent(session.parentSessionId);$('agent-message').value=($('agent-message').value.trim()?$('agent-message').value+'\n\n':'')+text;forwardedThread='';$('include-current-document').checked=false;invalidateAgentPreview();renderAgentSessions();renderAgent();await previewAgentInput();
+  const text=`请结合以下讨论结论与依据处理项目任务。\n来源：${session.documentId}\n\n`+threads.filter(thread=>thread.messages.some(m=>ids.has(m.id))).map(thread=>`## 讨论 ${thread.id}${thread.anchor?`\n引用：${thread.anchor.quote}`:''}\n\n`+thread.messages.filter(m=>ids.has(m.id)).map(m=>`[${m.author} · ${m.intent}]\n${m.body}`).join('\n\n')).join('\n\n');
+  selectAgent(session.parentSessionId);$('agent-message').value=($('agent-message').value.trim()?$('agent-message').value+'\n\n':'')+text;selectedThreads=[];$('include-current-document').checked=false;invalidateAgentPreview();renderAgentSessions();renderAgent();await previewAgentInput();
  },'预填到工作会话');
 };
