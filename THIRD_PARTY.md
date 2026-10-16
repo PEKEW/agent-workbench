@@ -17,3 +17,9 @@ internal/server/web/katex.min.js、katex.min.css 与 fonts/ 来自 KaTeX 0.18.11
 示例架构图由 Archify 提交 a21ed05c9e9c910b66cae912e642ad044302720d 生成。源 JSON 与独立 HTML 保存在 docs/diagrams，许可为 MIT，完整文本见 docs/diagrams/LICENSE-archify.txt。工作台仅显示独立 HTML，运行时不加载生成器。
 
 上游：https://github.com/tt-a1i/archify。
+
+## 差异显示
+
+internal/server/web/diff.min.js 来自 jsdiff 9.0.0（BSD-3-Clause），用于生成统一差异；internal/server/web/diff2html.min.js 与 diff2html.min.css 来自 diff2html 3.4.56（MIT），用于渲染差异。两者均取自 npm 官方发布包，保留版本与许可头。许可文本位于 internal/server/web/licenses/。
+
+上游：https://github.com/kpdecker/jsdiff 与 https://github.com/rtfpessoa/diff2html。

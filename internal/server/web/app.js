@@ -16,6 +16,9 @@ let revision = "";
 let editable = false;
 let editing = false;
 let saving = false;
+// 编辑目标路径：文档时为所选文档；交互图时为配对的源文件。
+let editingPath = '';
+let diagramSource = null;
 const escapeHTML = text => text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 
 
@@ -109,11 +112,11 @@ function renderList() {
     if(!items.length){const empty=document.createElement('p');empty.className='empty-list';empty.textContent=query?'没有匹配的文件':'暂无文件';container.append(empty);}
   }
 }
-function dirty(){return editing&&$('markdown-editor').value!==markdown;}
+function dirty(){return editing&&$('markdown-editor').value!==(selectedKind==='diagram'?diagramSource?.markdown:markdown);}
 function leaveEditor(){
   if(saving)return false;
   if(dirty()&&!window.confirm('有未保存的修改，是否放弃？'))return false;
-  editing=false;$('editor-panel').hidden=true;$('save-button').hidden=true;$('cancel-button').hidden=true;$('edit-button').hidden=selectedKind!=='document';$('raw-button').hidden=selectedKind!=='document';return true;
+  editing=false;editingPath='';if(typeof hideConflict==='function')hideConflict();$('editor-panel').hidden=true;$('save-button').hidden=true;$('cancel-button').hidden=true;$('edit-button').hidden=selectedKind!=='document'&&!(selectedKind==='diagram'&&diagramSource);$('raw-button').hidden=selectedKind!=='document';return true;
 }
 async function showProject(info) {
   if(!leaveEditor())return;project=info;$('welcome').hidden=!!info;$('workspace').hidden=!info;
@@ -128,7 +131,7 @@ async function showProject(info) {
   try {await loadCollaboration();}catch(error){showError(error);}
   const all=entries();const target=all.find(d=>d.path===selected)||all.find(d=>d.path==='PLAN.md')||all.find(d=>d.path==='README.md')||all[0];
   $('empty').hidden=!!target;
-  if(target) await loadEntry(target);else {selected='';$('article').replaceChildren();$('raw-content').hidden=true;$('diagram-frame').hidden=true;$('diagram-frame').removeAttribute('srcdoc');$('current-path').textContent='暂无文档';$('raw-button').hidden=true;}
+  if(target) await loadEntry(target);else {selected='';diagramSource=null;$('diagram-source').hidden=true;$('article').replaceChildren();$('raw-content').hidden=true;$('diagram-frame').hidden=true;$('diagram-frame').removeAttribute('srcdoc');$('current-path').textContent='暂无文档';$('raw-button').hidden=true;}
   await loadAgentProject();
 }
 
@@ -142,7 +145,7 @@ function renderMarkdown() {
 }
 async function loadEntry(item) {
   if(!leaveEditor())return;
-  resetDiscussionSelection();const sequence=++readSequence;selected=item.path;selectedKind=item.kind;loadFolderState();revealEntry(item);markdown='';$('article').replaceChildren();$('raw-content').textContent='';$('raw-button').disabled=true;$('edit-button').disabled=true;editable=false;revision='';$('save-status').textContent='';renderList();renderThreads();if(isEngineering(item))$('engineering-files').open=true;if(item.kind==='file')$('code-files').open=true;showError(null);
+  resetDiscussionSelection();const sequence=++readSequence;selected=item.path;selectedKind=item.kind;loadFolderState();revealEntry(item);markdown='';diagramSource=null;$('diagram-source').hidden=true;$('article').replaceChildren();$('raw-content').textContent='';$('raw-button').disabled=true;$('edit-button').disabled=true;editable=false;revision='';$('save-status').textContent='';renderList();renderThreads();if(isEngineering(item))$('engineering-files').open=true;if(item.kind==='file')$('code-files').open=true;showError(null);
   $('current-path').textContent=item.path;$('view-kind').textContent=item.kind==='diagram'?'项目交互图':item.kind==='file'?'项目文件 · 只读':'项目文档';$('loading').hidden=false;$('empty').hidden=true;
   $('article').hidden=true;$('raw-content').hidden=true;$('diagram-frame').hidden=true;$('diagram-frame').removeAttribute('srcdoc');$('raw-button').hidden=item.kind!=='document';$('edit-button').hidden=item.kind!=='document';$('diagram-help').hidden=item.kind!=='diagram';
   try {
@@ -153,6 +156,16 @@ async function loadEntry(item) {
       const policy="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data:; connect-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'";
       $('diagram-frame').srcdoc=`<!doctype html><meta http-equiv="Content-Security-Policy" content="${policy}">`+data.html;
       $('diagram-frame').hidden=false;
+      if(data.source){
+        try{
+          const src=await api(`document?path=${encodeURIComponent(data.source)}`);
+          if(sequence!==readSequence)return;
+          diagramSource={path:data.source,markdown:src.markdown,revision:src.revision,editable:src.editable};
+          $('diagram-source').textContent=`源文件 ${data.source} · 点击「编辑原文」查看与修改；保存不会自动重新生成 HTML`;
+          $('diagram-source').hidden=false;
+          $('edit-button').hidden=false;$('edit-button').disabled=!src.editable;$('edit-button').title=src.editable?'':'此文件为只读';
+        }catch(error){if(sequence===readSequence)showError(error);}
+      }
     } else if(item.kind==='file') {$('raw-content').textContent=data.text;$('raw-content').hidden=false;
     } else {markdown=data.markdown;revision=data.revision;editable=data.editable;$('raw-button').disabled=false;$('edit-button').disabled=!editable;$('edit-button').title=editable?'':'此文件为只读';renderMarkdown();renderThreads();}
   } catch(error) {if(sequence===readSequence)showError(error);}
@@ -167,16 +180,37 @@ $('refresh-button').addEventListener('click',async()=>{
 window.addEventListener('DOMContentLoaded',async()=>{try{if(!token)throw new Error('请使用终端显示的完整地址打开工作台。');await showProject(await api('project'));}catch(error){$('welcome').hidden=false;showError(error);}},{once:true});
 
 $('edit-button').addEventListener('click',()=>{
-  if(!editable||saving)return;editing=true;raw=false;$('markdown-editor').value=markdown;$('editor-panel').hidden=false;$('article').hidden=true;$('raw-content').hidden=true;$('raw-button').hidden=true;$('edit-button').hidden=true;$('save-button').hidden=false;$('cancel-button').hidden=false;$('save-status').textContent='';$('markdown-editor').focus();
+  const source=selectedKind==='diagram';
+  if((source?!diagramSource?.editable:!editable)||saving)return;
+  editing=true;raw=false;editingPath=source?diagramSource.path:selected;$('markdown-editor').value=source?diagramSource.markdown:markdown;$('editor-panel').hidden=false;$('article').hidden=true;$('raw-content').hidden=true;$('diagram-frame').hidden=true;$('raw-button').hidden=true;$('edit-button').hidden=true;$('save-button').hidden=false;$('cancel-button').hidden=false;$('save-status').textContent='';$('markdown-editor').focus();
 });
 $('markdown-editor').addEventListener('input',()=>{$('save-status').textContent=dirty()?'未保存':'';});
-$('cancel-button').addEventListener('click',()=>{if(leaveEditor()){renderMarkdown();$('save-status').textContent='';}});
-$('save-button').addEventListener('click',async()=>{
+$('cancel-button').addEventListener('click',()=>{if(leaveEditor()){if(selectedKind==='diagram'){$('diagram-frame').hidden=false;}else renderMarkdown();$('save-status').textContent='';}});
+// 保存冲突时载入磁盘最新版本并显示差异；覆盖须由用户明确选择，并以刚载入的版本作为新的比对基准。
+let conflict=null;
+function hideConflict(){conflict=null;$('conflict-panel').hidden=true;$('conflict-diff').replaceChildren();}
+async function showConflict(){
+  const path=editingPath,latest=await api(`document?path=${encodeURIComponent(path)}`),draft=$('markdown-editor').value;
+  if(path!==editingPath||!editing)return;
+  if(latest.markdown===draft){if(selectedKind==='diagram'){diagramSource.markdown=latest.markdown;diagramSource.revision=latest.revision;}else{markdown=latest.markdown;revision=latest.revision;}hideConflict();$('save-status').textContent='磁盘版本与草稿相同，已同步版本';return;}
+  conflict={revision:latest.revision,markdown:latest.markdown};
+  renderUnifiedDiff($('conflict-diff'),documentConflictPatch(path,latest.markdown,draft));$('conflict-panel').hidden=false;$('save-status').textContent='版本冲突 · 草稿已保留';$('conflict-panel').scrollIntoView({block:'nearest'});
+}
+async function saveDraft(baseRevision){
   if(!editing||saving)return;saving=true;$('save-button').disabled=true;$('cancel-button').disabled=true;$('markdown-editor').disabled=true;showError(null);
-  try{const data=await api('document',{path:selected,markdown:$('markdown-editor').value,revision});markdown=data.markdown;revision=data.revision;saving=false;editing=false;leaveEditor();renderMarkdown();$('save-status').textContent='已保存';try{await loadCollaboration();}catch(error){showError(error);}}
-  catch(error){showError(error);$('save-status').textContent='草稿已保留';}
+  try{const data=await api('document',{path:editingPath,markdown:$('markdown-editor').value,revision:baseRevision});hideConflict();if(selectedKind==='diagram'){diagramSource.markdown=data.markdown;diagramSource.revision=data.revision;}else{markdown=data.markdown;revision=data.revision;}saving=false;editing=false;leaveEditor();if(selectedKind==='diagram'){$('diagram-frame').hidden=false;$('article').hidden=true;$('raw-content').hidden=true;}else renderMarkdown();$('save-status').textContent='已保存';try{await loadCollaboration();}catch(error){showError(error);}}
+  catch(error){
+    $('save-status').textContent='草稿已保留';
+    if(error.status===409){saving=false;try{await showConflict();}catch(loadError){showError(loadError);}}else showError(error);
+  }
   finally{saving=false;$('save-button').disabled=false;$('cancel-button').disabled=false;$('markdown-editor').disabled=false;}
+}
+$('save-button').addEventListener('click',()=>saveDraft(selectedKind==='diagram'?diagramSource.revision:revision));
+$('conflict-overwrite').addEventListener('click',()=>{if(conflict)saveDraft(conflict.revision);});
+$('conflict-discard').addEventListener('click',()=>{
+  if(!conflict||saving)return;if(selectedKind==='diagram'){diagramSource.markdown=conflict.markdown;diagramSource.revision=conflict.revision;}else{markdown=conflict.markdown;revision=conflict.revision;}$('markdown-editor').value=conflict.markdown;hideConflict();leaveEditor();if(selectedKind==='diagram'){$('diagram-frame').hidden=false;$('article').hidden=true;$('raw-content').hidden=true;}else renderMarkdown();$('save-status').textContent='已载入磁盘版本';
 });
+$('conflict-close').addEventListener('click',hideConflict);
 window.addEventListener('beforeunload',event=>{if(dirty()||saving){event.preventDefault();event.returnValue='';}});
 
 // 文件操作：新建、重命名与删除仅针对可写 Markdown；外部编辑器由本地启动参数决定，网页只提交项目内路径。

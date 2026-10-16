@@ -2,11 +2,12 @@
 import readline from 'node:readline';
 import {randomUUID} from 'node:crypto';
 const lines=readline.createInterface({input:process.stdin});let cwd='',turn='',pending=null,timer=null,inputText='';
-let threadId='fixture-thread-'+process.pid;let flood=false;let hookTrusted=false;let threadActive=false;let threadRound=0;
+let threadId='fixture-thread-'+process.pid;let flood=false,edit=false;let hookTrusted=false;let threadActive=false;let threadRound=0;
 const send=value=>process.stdout.write(JSON.stringify(value)+'\n');
 function finish(status='completed'){
   if(timer)clearTimeout(timer);timer=null;
   if(status==='completed'){
+    if(edit)send({method:'item/completed',params:{threadId,turnId:turn,item:{id:'patch-'+turn,type:'fileChange',status:'completed',changes:[{path:cwd+'/docs/fixture.md',kind:{type:'update',move_path:null},diff:'@@ -1,2 +1,2 @@\n 标题\n-旧行 <script>window.diffExecuted=true</script>\n+新行\n'},{path:cwd+'/docs/new.md',kind:{type:'add'},diff:'新文件内容\n'}]}}});
     send({method:'item/completed',params:{threadId,turnId:turn,item:{id:'command-'+turn,type:'commandExecution',command:'fixture command',cwd,aggregatedOutput:'协议测试输出',status:'completed',exitCode:0}}});
     send({method:'item/agentMessage/delta',params:{threadId,turnId:turn,itemId:'message-'+turn,delta:'协议测试回复'}});
     const discussions=[...inputText.matchAll(/^=== 讨论 (\S+) /gm)].map(match=>match[1]);
@@ -29,7 +30,7 @@ lines.on('line',line=>{
     if(p.threadId)threadId=p.threadId;cwd=p.cwd;send({id:m.id,result:{thread:{id:threadId,status:{type:'idle'}},model:'fixture-native',approvalPolicy:p.approvalPolicy,approvalsReviewer:'user',sandbox:{type:p.sandbox==='read-only'?'readOnly':'workspaceWrite'},cwd}});return;
   }
   if(m.method==='turn/start'){
-    turn='turn-'+randomUUID();inputText=p.input[0].text;const text=inputText.split('\n\n--- ')[0];flood=text==='FLOOD';
+    turn='turn-'+randomUUID();inputText=p.input[0].text;const text=inputText.split('\n\n--- ')[0];flood=text==='FLOOD';edit=text==='EDIT';
     send({method:'turn/started',params:{threadId,turn:{id:turn,status:'inProgress'}}});send({id:m.id,result:{turn:{id:turn,status:'inProgress'}}});
     if(text==='WAIT')return;
     if(text==='APPROVE'){

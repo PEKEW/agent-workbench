@@ -4,7 +4,7 @@ function createAgentTimeline(threadID){
  const conversation=new Map(),execution=new Map(),raw=[],completedTurns=new Set();let sequence=0,activeTurn='',pending=[],current=null;
  const put=(map,key,value)=>{if(!map.has(key))map.set(key,value);return map.get(key);};
  const trim=map=>{while(map.size>100)map.delete(map.keys().next().value);};
- const split=text=>{const index=text.search(/\n\n--- (?:选定文档|完整讨论|增量讨论|手动转发讨论)/);return index<0?{body:text,context:''}:{body:text.slice(0,index),context:text.slice(index)};};
+ const split=text=>{const index=text.search(/\n\n--- (?:选定文档|完整讨论|增量讨论|完整文档讨论|增量文档讨论|手动转发讨论)/);return index<0?{body:text,context:''}:{body:text.slice(0,index),context:text.slice(index)};};
  function append(events){for(const event of events){
   if(event.sequence<=sequence)continue;sequence=event.sequence;
   const p=event.params||{},item=p.item||{},method=event.method,turnID=p.turnId||p.turn?.id||activeTurn;
@@ -53,8 +53,12 @@ function createAgentTimeline(threadID){
   }
   if(method==='item/completed'||method==='turn/started'||method==='turn/completed'||method.startsWith('workbench/')||event.requestId){
    const key='event:'+event.sequence;
-   let title=method,body='';
-   if(method==='item/completed'){title=item.type==='fileChange'?'文件修改':'工具事件 · '+(item.type||method);body=JSON.stringify(item.changes||item,null,2);}
+   let title=method,body='',changes=null;
+   if(method==='item/completed'&&item.type==='fileChange'){
+    const kinds={add:'新建',delete:'删除',update:'修改'};
+    title='文件修改 · '+({completed:'已完成',failed:'失败',declined:'已拒绝',inProgress:'执行中'}[item.status]||item.status||'');changes=Array.isArray(item.changes)?item.changes:[];
+    body=changes.map(change=>`${kinds[change.kind?.type]||change.kind?.type||'变更'} ${change.path||''}${change.kind?.move_path?' → '+change.kind.move_path:''}`).join('\n');
+   }else if(method==='item/completed'){title='工具事件 · '+(item.type||method);body=JSON.stringify(item.changes||item,null,2);}
    if(method==='turn/started')title='回合开始';
    if(method==='turn/completed'){
    if(turnID)completedTurns.add(turnID);title='回合结束';body=({completed:'已完成',failed:'失败',interrupted:'已中断'}[p.turn?.status]||p.turn?.status||'');}
@@ -65,7 +69,7 @@ function createAgentTimeline(threadID){
    if(method==='workbench/contextCleared'){title='上下文已清空';body=`${p.reason}\n原 thread：${p.previousThreadId}\n新 thread：${p.threadId}`;}
    if(method==='workbench/requestAnswerSubmitted')title='已提交原生请求回应';
    if(method==='workbench/inputAccepted')continue;
-   put(execution,key,{...base,key,title,body});
+   put(execution,key,{...base,key,title,body,...(changes?{changes}:{})});
   }
  }
  trim(conversation);trim(execution);

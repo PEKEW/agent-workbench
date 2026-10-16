@@ -13,6 +13,8 @@
   "visibleWaitingStatus": true,
   "discussionParticipantStates": true,
   "batchIndependentDelivery": true,
+  "saveConflictDiff": true,
+  "fileChangeDiff": true,
   "documentScopedDiscussionSessions": true,
   "batchPreviewWithoutSend": true,
   "batchReplyRouting": true,
