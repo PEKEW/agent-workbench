@@ -57,21 +57,55 @@ function isEngineering(item) {
     || path.startsWith('docs/standards/') || path.endsWith('/spec-template.md') || path.endsWith('/README.md')
     || /^docs\/reviews\/(stage-one|initialization|discussion)/.test(path);
 }
+// 目录展开状态只是浏览便利，按项目保存在本机浏览器；存储不可用时退回默认展开 docs。
+const openFolders=new Set();
+let folderStateKey='';
+function loadFolderState(){
+  const key='workbench-folders:'+(project?.root||'');if(key===folderStateKey)return;
+  folderStateKey=key;openFolders.clear();
+  try{for(const path of JSON.parse(localStorage.getItem(key)||'["docs"]'))openFolders.add(String(path));}catch{openFolders.add('docs');}
+}
+function saveFolderState(){try{localStorage.setItem(folderStateKey,JSON.stringify([...openFolders]));}catch{}}
+function revealPath(path){const parts=path.split('/');for(let i=1;i<parts.length;i++)openFolders.add(parts.slice(0,i).join('/'));saveFolderState();}
+function buildTree(items){
+  const root={path:'',folders:new Map(),files:[],count:0};
+  for(const item of items){
+    const parts=item.path.split('/');let node=root;node.count++;
+    for(let i=0;i<parts.length-1;i++){
+      if(!node.folders.has(parts[i]))node.folders.set(parts[i],{name:parts[i],path:parts.slice(0,i+1).join('/'),folders:new Map(),files:[],count:0});
+      node=node.folders.get(parts[i]);node.count++;
+    }
+    node.files.push(item);
+  }
+  return root;
+}
 function renderList() {
+  loadFolderState();
   const query=$('filter').value.trim().toLocaleLowerCase();
   const all=entries().filter(d=>d.path.toLocaleLowerCase().includes(query));
   const normal=all.filter(d=>!isEngineering(d)),engineering=all.filter(isEngineering);
   $('document-count').textContent=String(normal.length);$('engineering-count').textContent=String(engineering.length);$('engineering-files').hidden=!engineering.length;
-  function draw(container,items) {
-    container.replaceChildren();const groups=new Map();
-    for(const item of items){const group=item.kind==='diagram'?'交互图':item.path==='PLAN.md'||item.path==='docs/task_plan.md'||item.path==='progress.md'?'计划与进度':item.path.startsWith('docs/specs/')?'设计':item.path.startsWith('docs/reviews/')?'评审':item.path==='docs/findings.md'?'发现':item.path==='README.md'?'项目说明':'其他文件';if(!groups.has(group))groups.set(group,[]);groups.get(group).push(item);}
-    const groupOrder=["计划与进度","交互图","设计","发现","评审","项目说明","其他文件"];
-    for(const [group,items] of [...groups].sort((a,b)=>groupOrder.indexOf(a[0])-groupOrder.indexOf(b[0]))){const title=document.createElement('div');title.className='file-group';title.textContent=group;container.append(title);
-      for(const item of items){const button=document.createElement('button');button.type='button';button.className='file-button';button.dataset.path=item.path;button.classList.toggle('active',item.path===selected);button.setAttribute('aria-current',item.path===selected?'page':'false');const name=document.createElement('strong');name.textContent=item.path.split('/').at(-1);const detail=document.createElement('small');detail.textContent=item.kind==='diagram'?'交互式 HTML':item.path;button.append(name,detail);button.addEventListener('click',()=>loadEntry(item));container.append(button);}
+  const byName=(a,b)=>a.localeCompare(b,'zh-CN',{numeric:true});
+  function drawNode(container,node){
+    for(const folder of [...node.folders.values()].sort((a,b)=>byName(a.name,b.name))){
+      const details=document.createElement('details'),summary=document.createElement('summary'),name=document.createElement('span'),count=document.createElement('small'),children=document.createElement('div');
+      details.className='tree-folder';details.dataset.folder=folder.path;details.open=!!query||openFolders.has(folder.path);
+      name.textContent=folder.name;count.textContent=String(folder.count);summary.title=folder.path;summary.append(name,count);
+      summary.addEventListener('click',()=>{if(details.open)openFolders.delete(folder.path);else openFolders.add(folder.path);saveFolderState();});
+      children.className='tree-children';drawNode(children,folder);details.append(summary,children);container.append(details);
     }
+    for(const item of node.files.sort((a,b)=>byName(a.path,b.path))){
+      const button=document.createElement('button');button.type='button';button.className='file-button';button.dataset.path=item.path;button.title=item.path;
+      button.classList.toggle('active',item.path===selected);button.setAttribute('aria-current',item.path===selected?'page':'false');
+      const name=document.createElement('strong');name.textContent=item.path.split('/').at(-1);button.append(name);
+      if(item.kind==='diagram'){const detail=document.createElement('small');detail.textContent='交互式 HTML';button.append(detail);}
+      button.addEventListener('click',()=>loadEntry(item));container.append(button);
+    }
+  }
+  for(const [container,items] of [[$('document-list'),normal],[$('engineering-list'),engineering]]){
+    container.replaceChildren();drawNode(container,buildTree(items));
     if(!items.length){const empty=document.createElement('p');empty.className='empty-list';empty.textContent=query?'没有匹配的文件':'暂无文件';container.append(empty);}
   }
-  draw($('document-list'),normal);draw($('engineering-list'),engineering);
 }
 function dirty(){return editing&&$('markdown-editor').value!==markdown;}
 function leaveEditor(){
@@ -106,7 +140,7 @@ function renderMarkdown() {
 }
 async function loadEntry(item) {
   if(!leaveEditor())return;
-  resetDiscussionSelection();const sequence=++readSequence;selected=item.path;selectedKind=item.kind;markdown='';$('article').replaceChildren();$('raw-content').textContent='';$('raw-button').disabled=true;$('edit-button').disabled=true;editable=false;revision='';$('save-status').textContent='';renderList();renderThreads();if(isEngineering(item))$('engineering-files').open=true;showError(null);
+  resetDiscussionSelection();const sequence=++readSequence;selected=item.path;selectedKind=item.kind;loadFolderState();revealPath(item.path);markdown='';$('article').replaceChildren();$('raw-content').textContent='';$('raw-button').disabled=true;$('edit-button').disabled=true;editable=false;revision='';$('save-status').textContent='';renderList();renderThreads();if(isEngineering(item))$('engineering-files').open=true;showError(null);
   $('current-path').textContent=item.path;$('view-kind').textContent=item.kind==='diagram'?'项目交互图':'项目文档';$('loading').hidden=false;$('empty').hidden=true;
   $('article').hidden=true;$('raw-content').hidden=true;$('diagram-frame').hidden=true;$('diagram-frame').removeAttribute('srcdoc');$('raw-button').hidden=item.kind==='diagram';$('edit-button').hidden=item.kind==='diagram';$('diagram-help').hidden=item.kind!=='diagram';
   try {

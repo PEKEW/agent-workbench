@@ -55,6 +55,7 @@
   "discussionScriptBlocked": true,
   "newProject": true,
   "engineeringFilesHidden": true,
+  "fileTree": true,
   "editorSave": true,
   "saveConflictPreservesDraft": true,
   "unsavedNavigationProtected": true,
