@@ -115,12 +115,12 @@ await evalJS('document.querySelector("#edit-button").click()');await until('!doc
 assert(await evalJS('document.querySelector("#markdown-editor").value===\'{"version":1}\''),'source not loaded into editor');
 await evalJS('document.querySelector("#markdown-editor").value=\'{"version":2}\';document.querySelector("#markdown-editor").dispatchEvent(new Event("input"))');
 await evalJS('document.querySelector("#save-button").click()');await until('document.querySelector("#editor-panel").hidden && document.querySelector("#save-status").textContent==="已保存"');
-assert(fs.readFileSync(created+'/docs/diagrams/demo.json','utf8')==='{"version":2"}','source save not applied on disk');
+assert(fs.readFileSync(created+'/docs/diagrams/demo.json','utf8')==='{"version":2}','source save not applied on disk');
 assert(fs.readFileSync(created+'/docs/diagrams/demo.html','utf8').includes('demo-v1'),'save touched generated html');
 assert(await evalJS('!document.querySelector("#diagram-frame").hidden'),'diagram view not restored after source save');
-await evalJS('document.querySelector("#edit-button").click()');await evalJS('document.querySelector("#markdown-editor").value=\'{"version":3}\';document.querySelector("#cancel-button").click()');
+dialogAccept=true;await evalJS('document.querySelector("#edit-button").click()');await evalJS('document.querySelector("#markdown-editor").value=\'{"version":3}\';document.querySelector("#cancel-button").click()');dialogAccept=false;
 assert(await evalJS('!document.querySelector("#diagram-frame").hidden'),'cancel did not restore diagram view');
-assert(fs.readFileSync(created+'/docs/diagrams/demo.json','utf8')==='{"version":2"}','cancel wrote source file');
+assert(fs.readFileSync(created+'/docs/diagrams/demo.json','utf8')==='{"version":2}','cancel wrote source file');
 
 const old=temp+'/已有项目';fs.mkdirSync(old);fs.writeFileSync(old+'/PLAN.md','# 已有计划\n\n保留修改');const oldBefore=fs.readFileSync(old+'/PLAN.md','utf8');
 const second=await launch(['--no-browser']);await navigate(second);await until('document.querySelector("#open-form") && !document.querySelector("#welcome").hidden');await evalJS(`document.querySelector('#open-path').value=${JSON.stringify(old)};document.querySelector('#open-form').requestSubmit()`);await until('document.querySelector("#article").innerText.includes("已有计划")');assert(await evalJS('!document.querySelector("#warnings").hidden'),'missing warnings');assert(fs.readFileSync(old+'/PLAN.md','utf8')===oldBefore&&fs.readdirSync(old).length===1,'open wrote files');

@@ -230,7 +230,8 @@ func (s *Server) getDiagram(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	respond(w, 200, map[string]string{"path": path, "html": body})
+	source, _ := s.project.DiagramSource(path)
+	respond(w, 200, map[string]string{"path": path, "html": body, "source": source})
 }
 
 func (s *Server) saveDocument(w http.ResponseWriter, r *http.Request) {

@@ -219,10 +219,10 @@ func allowedDocument(path string) bool {
 	return fs.ValidPath(path) && !strings.Contains(path, "\\") && strings.EqualFold(filepath.Ext(path), ".md") && (!strings.Contains(path, "/") || strings.HasPrefix(path, "docs/"))
 }
 
-// ReadDocument 读取根目录或 docs 内的 Markdown，拒绝目录越界和符号链接。
+// ReadDocument 读取根目录或 docs 内的 Markdown 与交互图源文件，拒绝目录越界和符号链接。
 func (p *Project) ReadDocument(path string) (string, error) {
-	if !allowedDocument(path) {
-		return "", errors.New("仅允许读取根目录或 docs 下的 Markdown 相对路径")
+	if !allowedDocument(path) && !p.allowedDiagramSource(path) {
+		return "", errors.New("仅允许读取根目录或 docs 下的 Markdown，或 docs/diagrams 下的交互图源文件")
 	}
 	b, err := p.read(path)
 	return string(b), err
@@ -284,6 +284,76 @@ func allowedDiagram(path string) bool {
 	return fs.ValidPath(path) && !strings.Contains(path, "\\") && strings.HasPrefix(path, "docs/diagrams/") && strings.EqualFold(filepath.Ext(path), ".html")
 }
 
+var diagramSourceExts = map[string]bool{".json": true, ".yaml": true, ".yml": true, ".mmd": true, ".puml": true, ".dot": true}
+
+// diagramBaseName 去掉末尾扩展名，用于图与源文件按主名配对。
+func diagramBaseName(name string) string { return strings.TrimSuffix(name, filepath.Ext(name)) }
+
+// diagramPairDir 返回项目内斜杠路径的所在目录。
+func diagramPairDir(path string) string {
+	if cut := strings.LastIndex(path, "/"); cut >= 0 {
+		return path[:cut]
+	}
+	return "."
+}
+
+// DiagramSource 返回与交互图 HTML 配对的源文件路径；找不到时返回空字符串。
+// 配对规则：同目录、主名等于 HTML 主名或以「<主名>.」为前缀的第一个源扩展名文件，按名称排序取首个。
+func (p *Project) DiagramSource(htmlPath string) (string, error) {
+	if !allowedDiagram(htmlPath) {
+		return "", errors.New("仅允许读取 docs/diagrams 下的 HTML")
+	}
+	dir := diagramPairDir(htmlPath)
+	entries, err := fs.ReadDir(p.root.FS(), dir)
+	if err != nil {
+		return "", err
+	}
+	base := diagramBaseName(filepath.Base(htmlPath))
+	for _, entry := range entries {
+		name := entry.Name()
+		if name == filepath.Base(htmlPath) || !entry.Type().IsRegular() || strings.EqualFold(filepath.Ext(name), ".html") || !diagramSourceExts[strings.ToLower(filepath.Ext(name))] {
+			continue
+		}
+		stem := diagramBaseName(name)
+		if stem != base && !strings.HasPrefix(stem, base+".") {
+			continue
+		}
+		candidate := name
+		if dir != "." {
+			candidate = dir + "/" + name
+		}
+		if _, err := p.safeStat(candidate); err != nil {
+			continue
+		}
+		return candidate, nil
+	}
+	return "", nil
+}
+
+// allowedDiagramSource 判断路径是否为可编辑的交互图源文件：约定目录、源扩展名，且同目录存在配对 HTML。
+func (p *Project) allowedDiagramSource(name string) bool {
+	if !fs.ValidPath(name) || strings.Contains(name, "\\") || !strings.HasPrefix(name, "docs/diagrams/") || strings.EqualFold(filepath.Ext(name), ".html") || !diagramSourceExts[strings.ToLower(filepath.Ext(name))] {
+		return false
+	}
+	dir := diagramPairDir(name)
+	entries, err := fs.ReadDir(p.root.FS(), dir)
+	if err != nil {
+		return false
+	}
+	stem := diagramBaseName(filepath.Base(name))
+	for _, entry := range entries {
+		candidate := entry.Name()
+		if !entry.Type().IsRegular() || !strings.EqualFold(filepath.Ext(candidate), ".html") {
+			continue
+		}
+		htmlStem := diagramBaseName(candidate)
+		if stem == htmlStem || strings.HasPrefix(stem, htmlStem+".") {
+			return true
+		}
+	}
+	return false
+}
+
 // ReadDiagram 只读取约定目录中的独立 HTML，交由隔离 iframe 展示。
 func (p *Project) ReadDiagram(path string) (string, error) {
 	if !allowedDiagram(path) {
@@ -340,8 +410,8 @@ func (p *Project) DocumentState(path string) (DocumentContent, error) {
 
 // SaveDocument 检查读取版本后在同目录替换正文，不自动提交 Git。
 func (p *Project) SaveDocument(path, markdown, revision string) (DocumentContent, error) {
-	if !allowedDocument(path) {
-		return DocumentContent{}, errors.New("无效的 Markdown 路径")
+	if !allowedDocument(path) && !p.allowedDiagramSource(path) {
+		return DocumentContent{}, errors.New("无效的 Markdown 或交互图源文件路径")
 	}
 	if len(markdown) > MaxDocumentBytes || !utf8.ValidString(markdown) {
 		return DocumentContent{}, errors.New("正文须为有效 UTF-8，且不超过 2 MiB")

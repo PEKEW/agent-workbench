@@ -186,6 +186,9 @@ func TestDiagramEndpointRequiresToken(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "docs/diagrams/plan.html"), []byte("<title>计划图</title>"), 0644); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(root, "docs/diagrams/plan.data.json"), []byte(`{"v":1}`), 0644); err != nil {
+		t.Fatal(err)
+	}
 	p, err := project.Open(root)
 	if err != nil {
 		t.Fatal(err)
@@ -193,12 +196,40 @@ func TestDiagramEndpointRequiresToken(t *testing.T) {
 	s := New(testToken, p)
 	defer s.Close()
 	w := request(t, s, "GET", "/api/diagram?path=docs/diagrams/plan.html", "", testToken, "")
-	if w.Code != 200 || !strings.Contains(w.Body.String(), "计划图") {
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "计划图") || !strings.Contains(w.Body.String(), "docs/diagrams/plan.data.json") {
 		t.Fatalf("%d %s", w.Code, w.Body.String())
 	}
 	w = request(t, s, "GET", "/api/diagram?path=docs/diagrams/plan.html", "", "", "")
 	if w.Code != 403 {
 		t.Fatal(w.Code)
+	}
+	// 源文件沿用文档接口读写：带版本校验保存。
+	w = request(t, s, "GET", "/api/document?path=docs/diagrams/plan.data.json", "", testToken, "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `{\"v\":1}`) {
+		t.Fatal("source read", w.Code, w.Body.String())
+	}
+	var state struct {
+		Revision string `json:"revision"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	payload, _ := json.Marshal(map[string]string{"path": "docs/diagrams/plan.data.json", "markdown": `{"v":2}`, "revision": state.Revision})
+	w = request(t, s, "POST", "/api/document", string(payload), testToken, "")
+	if w.Code != 200 || !strings.Contains(w.Body.String(), `{\"v\":2}`) {
+		t.Fatal("source save", w.Code, w.Body.String())
+	}
+	if body, err := os.ReadFile(filepath.Join(root, "docs/diagrams/plan.data.json")); err != nil || string(body) != `{"v":2}` {
+		t.Fatal("source not saved on disk", string(body), err)
+	}
+	w = request(t, s, "POST", "/api/document", string(payload), testToken, "")
+	if w.Code != 409 {
+		t.Fatal("stale source revision accepted", w.Code)
+	}
+	for _, bad := range []string{"../diagrams/x.json", "docs/diagrams/plan.html", "docs/diagrams/missing.json"} {
+		if w := request(t, s, "GET", "/api/document?path="+bad, "", testToken, ""); w.Code != 400 {
+			t.Fatal("bad source path accepted", bad, w.Code)
+		}
 	}
 }
 

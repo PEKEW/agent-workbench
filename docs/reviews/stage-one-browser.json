@@ -68,6 +68,7 @@
   "unsavedNavigationProtected": true,
   "existingDirectoryPreserved": true,
   "existingProjectReadOnly": true,
+  "diagramSourceEdit": true,
   "duplicateDocumentPaths": true,
   "rawView": true,
   "staleDocumentCleared": true,

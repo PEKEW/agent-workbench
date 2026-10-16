@@ -55,3 +55,13 @@ Go 项目入口、文档阅读与 Archify iframe 已实现。关键验证与截�
 - 原生协议无 compact 操作；空闲且已连接、无队列的会话可在现有原生连接上重建 thread（新 thread/start），保留工作台会话 ID、选项与全部日志，记录 workbench/contextCleared 披露旧／新 thread；运行中、等待响应、断开或排队时拒绝。讨论会话清空后基线重置，下一次预览按完整材料重发；compact 点之前的输入证据不再阻止空会话缺失 rollout 时的重建。
 - 工具栏新增「清空上下文」按钮（空闲时可用，点击需确认），执行时间线展示清空事件。
 - 验证：gofmt、go vet、go test -race、Markdown 检查、前端 harness、服务端 HTTP、真实 CLI 0.155.0 重建 thread（AWB_REAL_CODEX=1）、浏览器冒烟（含恢复后清空步骤）全部通过；规格 codex_access_spec 与 README 已同步。
+
+## 2026-10-16 回复可读性要求（#17）
+
+- 审计回复质量损耗点：指令模板缺少输出格式约束，渲染链路（marked + DOMPurify + KaTeX）无额外损耗。新增统一规则块 replyReadabilityRules（结论先行、结构分块、每条讨论默认 300 字以内、代码块带语言、实施说明改动与验证、不写客套话与表情符号），附加到讨论转发指令、批量默认任务与送回工作会话模板；规则随任务文本发送并在预览可见，为 #4 配置化模板预留替换点。
+- 验证：前端 harness 新增 testReplyReadabilityRules，go test、批量与对话 harness、Markdown 检查、浏览器冒烟全部通过；conversation_sync_spec 与 README 已同步。
+
+## 2026-10-16 交互图源文件查看与编辑（#6）
+
+- 图与源文件按名称配对（同目录、主名相同或以「<主名>.」为前缀的首个 `.json` 等源文件）；`GET /api/diagram` 返回 `source`，图视图显示源文件路径并复用「编辑原文」编辑器修改，沿用版本冲突保护与只读区域；保存只改源文件，不自动重新生成 HTML，iframe 隔离策略不变。
+- 验证：project 配对/读写/只读测试、服务端 HTTP 测试、浏览器冒烟（含保存与取消路径、生成 HTML 不被触碰）全部通过；workbench_spec 新增「交互图源文件」小节，README 已同步。

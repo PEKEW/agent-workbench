@@ -68,6 +68,8 @@ function renderBatchRows(rows){
 }
 $('batch-select-visible').onclick=()=>{for(const id of visibleDiscussionIDs)selectedDiscussionIDs.add(id);renderThreads();};
 $('batch-clear-selection').onclick=()=>{selectedDiscussionIDs.clear();renderThreads();};
+// 批量交付的默认任务要求：与单条讨论转发共用同一组回复可读性要求。
+function batchDefaultTask(){return '处理所列各条讨论中用户的最新要求。若要求实现或修改，请实际实施并验证；若要求讨论，请回应并说明依据。仅完成分析时应明确说明尚未实施。\n\n'+replyReadabilityRules;}
 $('batch-open').onclick=async()=>{
  try{
   if(!leaveEditor())return;
@@ -75,7 +77,7 @@ $('batch-open').onclick=async()=>{
   if(!parents.length)throw Error('请先启动一个工作会话');
   const select=$('batch-parent');select.replaceChildren();for(const parent of parents){const option=document.createElement('option');option.value=parent.id;option.textContent=parent.name;select.append(option);}
   const preferred=getAgent()?.parentSessionId||selectedAgent;if(parents.some(s=>s.id===preferred))select.value=preferred;
-  $('batch-task').value='处理所列各条讨论中用户的最新要求。若要求实现或修改，请实际实施并验证；若要求讨论，请回应并说明依据。仅完成分析时应明确说明尚未实施。';
+  $('batch-task').value=batchDefaultTask();
   discussionBatch={ids:Array.from(selectedDiscussionIDs),rows:[]};$('batch-error').hidden=true;$('batch-parent').disabled=false;$('batch-task').disabled=false;
   renderBatchRows(groupDiscussionBatch(discussionBatch.ids));$('batch-dialog').showModal();
  }catch(error){showError(error);}

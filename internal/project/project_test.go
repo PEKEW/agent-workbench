@@ -2,6 +2,7 @@ package project
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -298,5 +299,65 @@ func TestReadonlyPathAliases(t *testing.T) {
 	}
 	if checked == 0 {
 		t.Skip("文件系统区分大小写")
+	}
+}
+
+func TestDiagramSourcePairingAndEditing(t *testing.T) {
+	root := t.TempDir()
+	put(t, root, "project.json", `{"project_name":"图"}`)
+	put(t, root, "docs/diagrams/a.html", "<html>a</html>")
+	put(t, root, "docs/diagrams/a.finalize.json", `{"v":1}`)
+	put(t, root, "docs/diagrams/b.html", "<html>b</html>")
+	put(t, root, "docs/diagrams/c.html", "<html>c</html>")
+	put(t, root, "docs/diagrams/c.json", `{"c":1}`)
+	put(t, root, "docs/diagrams/c.extra.yaml", "c: 1")
+	put(t, root, "docs/diagrams/nested/deep.html", "<html>d</html>")
+	put(t, root, "docs/diagrams/nested/deep.json", `{"d":1}`)
+	p, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer p.Close()
+	for html, want := range map[string]string{
+		"docs/diagrams/a.html":           "docs/diagrams/a.finalize.json",
+		"docs/diagrams/b.html":           "",
+		"docs/diagrams/c.html":           "docs/diagrams/c.extra.yaml",
+		"docs/diagrams/nested/deep.html": "docs/diagrams/nested/deep.json",
+	} {
+		source, err := p.DiagramSource(html)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if source != want {
+			t.Fatalf("%s source=%q want %q", html, source, want)
+		}
+	}
+	state, err := p.DocumentState("docs/diagrams/a.finalize.json")
+	if err != nil || !state.Editable || state.Markdown != `{"v":1}` {
+		t.Fatalf("source state: %+v %v", state, err)
+	}
+	saved, err := p.SaveDocument("docs/diagrams/a.finalize.json", `{"v":2}`, state.Revision)
+	if err != nil || saved.Markdown != `{"v":2}` {
+		t.Fatalf("source save: %+v %v", saved, err)
+	}
+	if _, err = p.SaveDocument("docs/diagrams/a.finalize.json", `{"v":3}`, state.Revision); !errors.Is(err, ErrConflict) {
+		t.Fatal("stale source revision accepted", err)
+	}
+	for _, bad := range []string{"../x.json", "docs/diagrams/a.html", "docs/diagrams/missing.json"} {
+		if _, err := p.DocumentState(bad); err == nil {
+			t.Fatal("bad source accepted", bad)
+		}
+		if _, err := p.SaveDocument(bad, "x", "rev"); err == nil {
+			t.Fatal("bad source saved", bad)
+		}
+	}
+	put(t, root, "project.json", `{"project_name":"图","readonly_zones":"docs/diagrams"}`)
+	locked, err := Open(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer locked.Close()
+	if _, err := locked.SaveDocument("docs/diagrams/a.finalize.json", `{"v":4}`, saved.Revision); !errors.Is(err, ErrReadOnly) {
+		t.Fatal("readonly zone not enforced for source", err)
 	}
 }

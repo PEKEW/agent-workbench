@@ -122,9 +122,11 @@ $('agent-input-form').onsubmit=async event=>{
   catch(error){$('agent-input-status').textContent='输入已保留';showError(error);}
   finally{agentSending=false;updateAgentSendButton();}
 };
+// 回复可读性要求：附加在各任务指令末尾，约束 Agent 在工作台阅读场景下的回复结构与长度；未来配置化模板按项目替换此块。
+const replyReadabilityRules='回复要求：\n- 结论先行：首句直接给出结果或答复，再给依据和过程。\n- 结构分块：用 Markdown 标题、列表或表格分段，一段只讲一个内容。\n- 控制长度：每条讨论回应默认 300 字以内；用户明确要求展开时再给完整细节。\n- 代码规范：代码放入带语言的代码块，命令给完整可复制的命令行。\n- 实施说明：完成实现或修改时列出改动文件与验证方式；仅完成分析时明确写「尚未实施」。\n- 只写有信息量的内容：不写客套话、过渡寒暄和表情符号。';
 function discussionTaskInstruction(thread){
  const latest=thread?.messages.filter(m=>m.role==='human').at(-1)?.body||'请处理这条讨论中用户的最新要求。';
- return latest+'\n\n请结合引用和讨论背景处理以上用户要求。若要求实现或修改，请实际实施并验证；若要求讨论，请回应并说明依据。仅完成分析时应明确说明尚未实施。';
+ return latest+'\n\n请结合引用和讨论背景处理以上用户要求。若要求实现或修改，请实际实施并验证；若要求讨论，请回应并说明依据。仅完成分析时应明确说明尚未实施。\n\n'+replyReadabilityRules;
 }
 function forwardThreadToAgent(id){
  const parents=agentSessions.filter(s=>!s.parentSessionId);
@@ -211,9 +213,9 @@ function renderAgentEvents(){
    title.textContent=dialogue?(entry.role==='human'?'用户':'Agent')+(entry.phase==='commentary'?' · 中间消息':'')+(entry.status==='queued'?' · 排队':entry.status==='cleared'?' · 已移出队列':''):entry.title;card.append(time,title);
    if(dialogue){const body=document.createElement('div');body.className='markdown-message';renderProjectMarkdown(body,entry.body,getAgent()?.documentId||'PLAN.md');card.append(body);}
    else if(entry.body){const body=document.createElement('pre');body.textContent=entry.body;card.append(body);}
+   if(!dialogue&&entry.changes?.length){const view=document.createElement('div');renderUnifiedDiff(view,fileChangePatch(entry.changes,project?.root));card.append(view);}
    const details=(label,body,key)=>{const detail=document.createElement('details'),summary=document.createElement('summary'),content=document.createElement('pre');detail.dataset.detailKey=key;detail.open=expanded.has(key);summary.textContent=label;content.textContent=body;detail.append(summary,content);card.append(detail);};
    if(entry.context)details('附带材料 · 原文',entry.context,entry.key+':context');
-   if(!dialogue&&entry.changes?.length){const view=document.createElement('div');renderUnifiedDiff(view,fileChangePatch(entry.changes,project?.root));card.append(view);}
    if(!dialogue&&entry.event)details('原始事件 #'+entry.sequence,JSON.stringify(entry.event,null,2),entry.key+':raw');
    if(entry.turnID){const locate=document.createElement('button');locate.className='small-button';locate.textContent=dialogue?'定位执行回合':'定位对话回合';locate.onclick=()=>{const other=$(dialogue?'agent-execution':'agent-conversation');for(const candidate of other.querySelectorAll('[data-turn]'))candidate.classList.toggle('turn-highlight',candidate.dataset.turn===entry.turnID);Array.from(other.querySelectorAll('[data-turn]')).find(el=>el.dataset.turn===entry.turnID)?.scrollIntoView({block:'nearest'});};card.append(locate);}
    if(dialogue){const copy=document.createElement('button');copy.className='small-button';copy.textContent='复制原文';copy.onclick=()=>navigator.clipboard.writeText(entry.body+(entry.context||'')).catch(showError);card.append(copy);}
@@ -302,7 +304,7 @@ $('return-to-work').onclick=()=>{
  const defaultIDs=new Set(messages.filter(({message})=>message.intent==='decision').map(({message})=>message.id));if(!defaultIDs.size)for(const thread of threads)if(thread.messages.length)defaultIDs.add(thread.messages.at(-1).id);
  openDiscussionDialog('选择送回工作会话的结论与依据',threads.map(thread=>`<fieldset><legend>${esc((thread.anchor?.quote||thread.messages[0]?.body||thread.id).slice(0,60))}</legend>`+thread.messages.map(m=>`<label><input type="checkbox" data-return-message="${esc(m.id)}" ${defaultIDs.has(m.id)?'checked':''}> ${esc(m.author+' · '+m.body.slice(0,180))}</label>`).join('')+'</fieldset>').join('')+'<p>仅预填所选材料，不自动发送。</p>',async()=>{
   const ids=new Set(Array.from($('discussion-dialog-body').querySelectorAll('[data-return-message]:checked')).map(input=>input.dataset.returnMessage));if(!ids.size)throw Error('至少选择一条结论或依据');
-  const text=`请结合以下讨论结论与依据处理项目任务。\n来源：${session.documentId}\n\n`+threads.filter(thread=>thread.messages.some(m=>ids.has(m.id))).map(thread=>`## 讨论 ${thread.id}${thread.anchor?`\n引用：${thread.anchor.quote}`:''}\n\n`+thread.messages.filter(m=>ids.has(m.id)).map(m=>`[${m.author} · ${m.intent}]\n${m.body}`).join('\n\n')).join('\n\n');
+  const text=`请结合以下讨论结论与依据处理项目任务。\n来源：${session.documentId}\n\n`+threads.filter(thread=>thread.messages.some(m=>ids.has(m.id))).map(thread=>`## 讨论 ${thread.id}${thread.anchor?`\n引用：${thread.anchor.quote}`:''}\n\n`+thread.messages.filter(m=>ids.has(m.id)).map(m=>`[${m.author} · ${m.intent}]\n${m.body}`).join('\n\n')).join('\n\n')+`\n\n`+replyReadabilityRules;
   selectAgent(session.parentSessionId);$('agent-message').value=($('agent-message').value.trim()?$('agent-message').value+'\n\n':'')+text;selectedThreads=[];$('include-current-document').checked=false;invalidateAgentPreview();renderAgentSessions();renderAgent();await previewAgentInput();
  },'预填到工作会话');
 };
