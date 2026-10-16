@@ -83,6 +83,7 @@ function renderAgent(){
   $('resume-agent').hidden=!session?.threadId||!['disconnected','closed'].includes(session.state);
   $('interrupt-agent').disabled=!session?.activeTurnId||!['running','waiting'].includes(session.state);
   $('close-agent').disabled=!session||session.state==='closed';
+  $('compact-agent').disabled=!session||session.state!=='idle'||!!session.queue.length;
   $('agent-queue').hidden=!session?.queue.length;
   $('agent-queue-count').textContent=session?`${session.queue.length} 条排队输入${session.queuePaused?' · 已暂停':''}`:'';
   $('continue-agent-queue').disabled=session?.state!=='idle'||!session?.queuePaused||!!session?.contextUncertain;
@@ -152,6 +153,7 @@ $('new-agent-form').onsubmit=async event=>{
 };
 async function agentAction(action,body={}){if(!selectedAgent)return;try{await api(`agents/${encodeURIComponent(selectedAgent)}/${action}`,body);await refreshAgents();showError(null);}catch(error){showError(error);}}
 $('interrupt-agent').onclick=()=>agentAction('interrupt');$('close-agent').onclick=()=>agentAction('close');$('resume-agent').onclick=()=>agentAction('resume');$('continue-agent-queue').onclick=()=>agentAction('queue',{action:'continue'});$('clear-agent-queue').onclick=()=>agentAction('queue',{action:'clear'});
+$('compact-agent').onclick=()=>{const s=getAgent();if(!s)return;if(!confirm(`清空「${s.name}」的原生上下文？\n将重建 Codex thread；工作台日志、选项与讨论记录保留。`))return;agentAction('compact');};
 
 function renderNativeRequests(session){
   const signature=JSON.stringify({id:session?.id,requests:session?.requests||[],pending:Array.from(pendingAnswers)});
@@ -193,6 +195,7 @@ function eventSummary(event){
   if(event.method==='workbench/runtimeDiagnostic')return {title:'运行时诊断',body:params.text||''};
   if(event.method==='workbench/runtimeExited')return {title:'原生进程退出',body:params.error||''};
   if(event.method==='workbench/emptySessionRecreated')return {title:'空会话已重新连接',body:`${params.reason}\n原 thread：${params.previousThreadId}\n新 thread：${params.threadId}`};
+  if(event.method==='workbench/contextCleared')return {title:'上下文已清空',body:`${params.reason}\n原 thread：${params.previousThreadId}\n新 thread：${params.threadId}`};
   return {title:{'workbench/sessionConnected':'Codex 会话已连接','workbench/requestAnswerSubmitted':'已提交原生请求回应','workbench/protocolError':'原生接口出错'}[event.method]||event.method,body:''};
 }
 function renderAgentEvents(){

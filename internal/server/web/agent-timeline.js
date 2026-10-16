@@ -62,6 +62,7 @@ function createAgentTimeline(threadID){
    if(method==='workbench/runtimeExited'){title='原生进程退出';body=p.error||'';}
    if(method==='workbench/sessionConnected')title='Codex 会话已连接';
    if(method==='workbench/emptySessionRecreated'){title='空会话已重新连接';body=`${p.reason}\n原 thread：${p.previousThreadId}\n新 thread：${p.threadId}`;}
+   if(method==='workbench/contextCleared'){title='上下文已清空';body=`${p.reason}\n原 thread：${p.previousThreadId}\n新 thread：${p.threadId}`;}
    if(method==='workbench/requestAnswerSubmitted')title='已提交原生请求回应';
    if(method==='workbench/inputAccepted')continue;
    put(execution,key,{...base,key,title,body});

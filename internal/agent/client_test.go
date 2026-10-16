@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"sync"
@@ -25,6 +26,7 @@ func TestRuntimeHelper(t *testing.T) {
 	scanner := bufio.NewScanner(os.Stdin)
 	scanner.Buffer(make([]byte, 4096), 3*1024*1024)
 	threadID := "native-thread"
+	threadSeq := 0
 	var cwd any
 	turnID := ""
 	count := 0
@@ -52,6 +54,10 @@ func TestRuntimeHelper(t *testing.T) {
 		case "initialized":
 		case "thread/start", "thread/resume":
 			cwd = params["cwd"]
+			if method == "thread/start" && os.Getenv("AWB_THREAD_SEQUENCE") == "1" {
+				threadSeq++
+				threadID = fmt.Sprintf("native-thread-%d", threadSeq)
+			}
 			if method == "thread/resume" && os.Getenv("AWB_RESUME_OTHER_ERROR") == "1" {
 				send(map[string]any{"id": id, "error": map[string]any{"code": -32600, "message": "native configuration unavailable"}})
 				continue

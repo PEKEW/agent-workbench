@@ -244,11 +244,13 @@ func (m *Manager) Events(id string, after int) ([]Event, error) {
 
 // canRecreateEmptyLocked 只允许完整日志证明从未收到输入的会话重建原生连接。
 // 不依赖最近事件缓存：旧输入即使已超过 1000 条仍禁止替换 thread。
+// workbench/contextCleared 是证据重置点：用户已显式清空上下文，此前的输入不再阻止重建。
 func (m *Manager) canRecreateEmptyLocked(r *runtimeSession) (bool, error) {
 	if m.closed || r.State == "closed" || r.ActiveInput != nil || r.ActiveTurnID != "" || r.LastTurnStatus != "" || len(r.Queue) != 0 {
 		return false, nil
 	}
 	after := 0
+	blocked := false
 	for {
 		events, err := m.readEvents(r.ID, after, 1000)
 		if err != nil {
@@ -259,12 +261,16 @@ func (m *Manager) canRecreateEmptyLocked(r *runtimeSession) (bool, error) {
 				return false, nil
 			}
 			after = event.Sequence
+			if event.Method == "workbench/contextCleared" {
+				blocked = false
+				continue
+			}
 			if event.Method == "workbench/inputAccepted" || strings.HasPrefix(event.Method, "turn/") || strings.HasPrefix(event.Method, "item/") {
-				return false, nil
+				blocked = true
 			}
 		}
 		if len(events) < 1000 {
-			return after > 0 && after == r.Sequence, nil
+			return !blocked && after > 0 && after == r.Sequence, nil
 		}
 	}
 }

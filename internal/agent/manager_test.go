@@ -356,3 +356,170 @@ func TestEmptySessionDoesNotReplaceOnOtherNativeError(t *testing.T) {
 		t.Fatal("unrelated native error hidden", err)
 	}
 }
+
+func compactSequenceFactory() func() *exec.Cmd {
+	return func() *exec.Cmd {
+		cmd := helperCommand()
+		cmd.Env = append(cmd.Env, "AWB_THREAD_SEQUENCE=1")
+		return cmd
+	}
+}
+func TestCompactRecreatesThreadAndKeepsWorkbenchHistory(t *testing.T) {
+	m, _ := testManager(t)
+	m.factory = compactSequenceFactory()
+	ctx := context.Background()
+	session, err := m.Create(ctx, StartOptions{Name: "压缩"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstThread := session.ThreadID
+	if _, err = m.Send(ctx, session.ID, "short task"); err != nil {
+		t.Fatal(err)
+	}
+	awaitSession(t, m, session.ID, func(s Session) bool { return s.State == "idle" && s.LastTurnStatus == "completed" })
+	compacted, err := m.Compact(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compacted.ID != session.ID || compacted.ThreadID == "" || compacted.ThreadID == firstThread {
+		t.Fatalf("compact did not recreate thread: %+v", compacted)
+	}
+	if compacted.State != "idle" || compacted.LastTurnStatus != "" {
+		t.Fatalf("compact left turn state behind: %+v", compacted)
+	}
+	events, err := m.Events(session.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundCleared, keptHistory := false, false
+	for _, event := range events {
+		if event.Method == "workbench/contextCleared" {
+			foundCleared = true
+			if !strings.Contains(string(event.Params), firstThread) || !strings.Contains(string(event.Params), compacted.ThreadID) {
+				t.Fatal("contextCleared missing thread transition", string(event.Params))
+			}
+		}
+		if event.Method == "turn/completed" {
+			keptHistory = true
+		}
+	}
+	if !foundCleared || !keptHistory {
+		t.Fatal("compact lost workbench history", foundCleared, keptHistory)
+	}
+	if _, err = m.Send(ctx, session.ID, "after compact"); err != nil {
+		t.Fatal(err)
+	}
+	awaitSession(t, m, session.ID, func(s Session) bool { return s.State == "idle" && s.LastTurnStatus == "completed" })
+}
+
+func TestCompactRefusesBusyQueuedClosedAndMissing(t *testing.T) {
+	m, _ := testManager(t)
+	ctx := context.Background()
+	if _, err := m.Compact(ctx, "missing"); err == nil {
+		t.Fatal("missing session accepted")
+	}
+	session, err := m.Create(ctx, StartOptions{Name: "边界"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Send(ctx, session.ID, "wait"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Compact(ctx, session.ID); err == nil {
+		t.Fatal("busy session compacted")
+	}
+	if result, err := m.Send(ctx, session.ID, "queued"); err != nil || !result.Queued {
+		t.Fatalf("busy input not queued: %+v %v", result, err)
+	}
+	if _, err = m.Compact(ctx, session.ID); err == nil {
+		t.Fatal("queued session compacted")
+	}
+	if err = m.Interrupt(ctx, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	awaitSession(t, m, session.ID, func(s Session) bool { return s.State == "idle" && s.LastTurnStatus == "interrupted" })
+	if err = m.CloseSession(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Compact(ctx, session.ID); err == nil {
+		t.Fatal("closed session compacted")
+	}
+}
+
+func TestCompactResetsEmptyRecreateEvidence(t *testing.T) {
+	m, _ := testManager(t)
+	m.factory = func() *exec.Cmd {
+		cmd := helperCommand()
+		cmd.Env = append(cmd.Env, "AWB_THREAD_SEQUENCE=1", "AWB_RESUME_MISSING=1")
+		return cmd
+	}
+	ctx := context.Background()
+	session, err := m.Create(ctx, StartOptions{Name: "清空后重建"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Send(ctx, session.ID, "work"); err != nil {
+		t.Fatal(err)
+	}
+	awaitSession(t, m, session.ID, func(s Session) bool { return s.State == "idle" && s.LastTurnStatus == "completed" })
+	if _, err = m.Compact(ctx, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err = m.CloseSession(session.ID); err != nil {
+		t.Fatal(err)
+	}
+	reconnected, err := m.Resume(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if reconnected.State != "idle" {
+		t.Fatal("compacted empty thread not recreated", reconnected.State)
+	}
+	events, err := m.Events(session.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range events {
+		if event.Method == "workbench/emptySessionRecreated" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("thread replacement not disclosed in log")
+	}
+}
+
+func TestCompactClearsDiscussionBaseline(t *testing.T) {
+	m, _ := testManager(t)
+	m.factory = compactSequenceFactory()
+	ctx := context.Background()
+	parent, err := m.Create(ctx, StartOptions{Name: "工作"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := m.CreateDiscussion(ctx, parent.ID, "PLAN.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := func(threadID string) DiscussionContext {
+		return DiscussionContext{ThreadID: threadID, DocumentID: "PLAN.md", Discussions: map[string]DiscussionBaseline{"D": {Messages: map[string]string{}}}, Selected: []string{"D"}, Full: true}
+	}
+	if _, err = m.SendDiscussion(ctx, child.ID, "请回应讨论", snapshot(child.ThreadID), ContextHash(nil)); err != nil {
+		t.Fatal(err)
+	}
+	awaitSession(t, m, child.ID, func(s Session) bool { return s.State == "idle" && s.DiscussionContext != nil })
+	compacted, err := m.Compact(ctx, child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compacted.DiscussionContext != nil || compacted.ContextUncertain {
+		t.Fatalf("compact kept discussion baseline: %+v", compacted)
+	}
+	if _, err = m.SendDiscussion(ctx, child.ID, "清空后再次回应", snapshot(compacted.ThreadID), ContextHash(nil)); err != nil {
+		t.Fatal(err)
+	}
+	awaitSession(t, m, child.ID, func(s Session) bool {
+		return s.State == "idle" && s.LastTurnStatus == "completed" && s.DiscussionContext != nil && s.DiscussionContext.ThreadID == compacted.ThreadID
+	})
+}

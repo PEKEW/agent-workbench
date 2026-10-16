@@ -18,7 +18,9 @@
 
 状态包括 starting、idle、running、waiting、disconnected 和 closed。按原生 turn/completed 的 completed／failed／interrupted 展示回合结果；失败不能当作完成。回合开始前占用输入入口，多个网页不能同时启动两个回合。忙碌时输入进入有界队列，正常完成后逐条发送；失败或中断时队列暂停，人工决定继续或清空。队列与发送状态明确记录，服务重启不自动重放。
 
-网页断线不结束运行，轮询按事件序号补齐。关闭会话或服务终止自有子进程并释放 pipe；不会结束其他 Codex 进程。恢复服务后读取历史和原生 thread ID，标记 disconnected，用户明确恢复后调用 thread/resume；本阶段只恢复本工作台记录的会话，不自动搜索全部 Codex 历史。 Codex 0.160.0 的空会话关闭后可能尚无 rollout：仅在原生明确返回该 thread 的 no rollout found、且完整日志与状态确认从未接收任何输入／开始回合时，重新创建原生空会话，保留工作台会话 ID、选项和日志，记录旧／新 thread ID 并在网页说明。任何已有输入或回合证据、未知错误或上下文丢失均不自动创建替代会话。
+网页断线不结束运行，轮询按事件序号补齐。关闭会话或服务终止自有子进程并释放 pipe；不会结束其他 Codex 进程。恢复服务后读取历史和原生 thread ID，标记 disconnected，用户明确恢复后调用 thread/resume；本阶段只恢复本工作台记录的会话，不自动搜索全部 Codex 历史。 Codex 0.160.0 的空会话关闭后可能尚无 rollout：仅在原生明确返回该 thread 的 no rollout found、且完整日志与状态确认从未接收任何输入／开始回合时，重新创建原生空会话，保留工作台会话 ID、选项和日志，记录旧／新 thread ID 并在网页说明。任何已有输入或回合证据、未知错误或上下文丢失均不自动创建替代会话。用户主动清空上下文后，重建证据以 workbench/contextCleared 事件为重置点：该事件之前的历史输入不再阻止空会话重建。
+
+协议没有原生 compact 操作。已连接且空闲、无队列、无待回应请求的会话可清空上下文：在现有原生连接上重新 thread/start 得到新 thread，保留工作台会话 ID、名称、选项与全部日志，记录 workbench/contextCleared（旧／新 thread ID 与原因）；讨论会话清空后讨论基线一并重置，下一次预览按完整材料重发。运行中、等待响应、连接中、断开或排队时拒绝清空；清空失败且原生进程仍存活时会话恢复空闲并记录错误。
 
 每项目最多 8 个运行时会话，每会话最多 20 条排队输入，单次输入及选定上下文总计不超过 2 MiB。原始事件持久化在 `.agent-state/sessions/`，网页默认显示最近 100 条，完整日志可按序读取；此阶段不删除或轮换原始日志。状态目录不跟随符号链接。只读打开项目不创建状态；明确创建或恢复会话才启动进程。
 
@@ -38,7 +40,7 @@
 
 `agent-workbench connect [--agent-name 名称] [--model 模型] [--sandbox 模式] [--approval 策略] [--no-browser] <项目目录>` 打开项目并创建一个 Codex 新会话。已有 open/new 命令仍有效，网页可主动创建会话。二进制通过 PATH 查找 codex，命令路径仅由本地启动配置指定，不接受网页任意可执行路径或 shell 参数。
 
-Agent 接口沿用工作台令牌与 Origin 检查。GET /api/agents 读取会话；POST /api/agents 创建；GET /api/agents/{id}/events 按 after 序号读取；POST /api/agents/{id}/input 发送／排队；POST /api/agents/{id}/interrupt 中断；POST /api/agents/{id}/close 关闭；POST /api/agents/{id}/resume 显式恢复；POST /api/agents/{id}/queue 控制暂停队列；POST /api/agents/{id}/requests/{requestId} 回答已记录请求。接口不提供任意原生方法透传。
+Agent 接口沿用工作台令牌与 Origin 检查。GET /api/agents 读取会话；POST /api/agents 创建；GET /api/agents/{id}/events 按 after 序号读取；POST /api/agents/{id}/input 发送／排队；POST /api/agents/{id}/interrupt 中断；POST /api/agents/{id}/close 关闭；POST /api/agents/{id}/resume 显式恢复；POST /api/agents/{id}/compact 清空原生上下文并重建 thread，保留工作台记录与日志；POST /api/agents/{id}/queue 控制暂停队列；POST /api/agents/{id}/requests/{requestId} 回答已记录请求。接口不提供任意原生方法透传。
 
 ## 验收与中止条件
 

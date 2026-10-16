@@ -2,7 +2,7 @@
 import readline from 'node:readline';
 import {randomUUID} from 'node:crypto';
 const lines=readline.createInterface({input:process.stdin});let cwd='',turn='',pending=null,timer=null,inputText='';
-let threadId='fixture-thread-'+process.pid;let flood=false;let hookTrusted=false;
+let threadId='fixture-thread-'+process.pid;let flood=false;let hookTrusted=false;let threadActive=false;let threadRound=0;
 const send=value=>process.stdout.write(JSON.stringify(value)+'\n');
 function finish(status='completed'){
   if(timer)clearTimeout(timer);timer=null;
@@ -24,6 +24,8 @@ lines.on('line',line=>{
  if(m.method==='config/read'){send({id:m.id,result:{layers:[{name:{type:'user'},version:hookTrusted?'V2':'V1'}]}});return;}
  if(m.method==='config/batchWrite'){hookTrusted=true;send({id:m.id,result:{status:'ok'}});return;}
   if(m.method==='thread/start'||m.method==='thread/resume'){
+    if(m.method==='thread/start'&&threadActive)threadId='fixture-thread-'+process.pid+'-round-'+(++threadRound);
+    threadActive=true;
     if(p.threadId)threadId=p.threadId;cwd=p.cwd;send({id:m.id,result:{thread:{id:threadId,status:{type:'idle'}},model:'fixture-native',approvalPolicy:p.approvalPolicy,approvalsReviewer:'user',sandbox:{type:p.sandbox==='read-only'?'readOnly':'workspaceWrite'},cwd}});return;
   }
   if(m.method==='turn/start'){

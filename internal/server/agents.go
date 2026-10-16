@@ -24,7 +24,7 @@ func (s *Server) registerAgents(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/agents", s.createAgent)
 	mux.HandleFunc("POST /api/agents/preview", s.previewAgentInput)
 	mux.HandleFunc("GET /api/agents/{id}/events", s.agentEvents)
-	for _, action := range []string{"input", "interrupt", "close", "resume", "queue", "delete"} {
+	for _, action := range []string{"input", "interrupt", "close", "resume", "queue", "delete", "compact"} {
 		mux.HandleFunc("POST /api/agents/{id}/"+action, s.agentAction)
 	}
 	mux.HandleFunc("POST /api/agents/{id}/requests/{requestId}", s.answerAgentRequest)
@@ -216,6 +216,13 @@ func (s *Server) agentAction(w http.ResponseWriter, r *http.Request) {
 	case "resume":
 		var session agent.Session
 		session, err = m.Resume(r.Context(), id)
+		if err == nil {
+			respond(w, 200, session)
+			return
+		}
+	case "compact":
+		var session agent.Session
+		session, err = m.Compact(r.Context(), id)
 		if err == nil {
 			respond(w, 200, session)
 			return

@@ -43,6 +43,7 @@
   "nativePermissionRoute": true,
   "agentLogsPersisted": true,
   "agentReloadAndResume": true,
+  "sessionCompact": true,
   "agentMobileNoOverflow": true,
   "htmlCollaborationRestored": true,
   "quoteAnnotation": true,

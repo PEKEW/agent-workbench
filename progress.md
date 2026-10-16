@@ -49,3 +49,9 @@ Go 项目入口、文档阅读与 Archify iframe 已实现。关键验证与截�
 ## GitHub 源码交付
 
 - 整理 1.0 预览版 README 和当前实现，发布目标为 PEKEW/agent-workbench；源码交付不包含本地会话、讨论状态、配置备份或构建产物。正式版本标签、发行包及全新环境验收仍待完成。
+
+## 2026-10-16 会话清空上下文
+
+- 原生协议无 compact 操作；空闲且已连接、无队列的会话可在现有原生连接上重建 thread（新 thread/start），保留工作台会话 ID、选项与全部日志，记录 workbench/contextCleared 披露旧／新 thread；运行中、等待响应、断开或排队时拒绝。讨论会话清空后基线重置，下一次预览按完整材料重发；compact 点之前的输入证据不再阻止空会话缺失 rollout 时的重建。
+- 工具栏新增「清空上下文」按钮（空闲时可用，点击需确认），执行时间线展示清空事件。
+- 验证：gofmt、go vet、go test -race、Markdown 检查、前端 harness、服务端 HTTP、真实 CLI 0.155.0 重建 thread（AWB_REAL_CODEX=1）、浏览器冒烟（含恢复后清空步骤）全部通过；规格 codex_access_spec 与 README 已同步。

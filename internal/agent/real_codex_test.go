@@ -66,6 +66,60 @@ func TestInstalledCodexHandshake(t *testing.T) {
 	t.Logf("empty session reconnect: previous=%s current=%s", s.ThreadID, restoredSession.ThreadID)
 }
 
+func TestInstalledCodexCompact(t *testing.T) {
+	if os.Getenv("AWB_REAL_CODEX") != "1" {
+		t.Skip("explicit real CLI verification")
+	}
+	binary, err := exec.LookPath("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err = os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte("# 临时验证项目\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(dir, "state")
+	if err = os.Mkdir(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewManager(dir, root, CodexCommand(binary))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	s, err := m.Create(ctx, StartOptions{Name: "本机清空验证", Sandbox: "read-only", ApprovalPolicy: "never"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	compacted, err := m.Compact(ctx, s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if compacted.ThreadID == "" || compacted.ThreadID == s.ThreadID || compacted.State != "idle" {
+		t.Fatalf("real compact did not recreate thread: %s -> %s", s.ThreadID, compacted.ThreadID)
+	}
+	events, err := m.Events(s.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, event := range events {
+		if event.Method == "workbench/contextCleared" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("real compact not disclosed in log")
+	}
+	t.Logf("native compact: previous=%s current=%s", s.ThreadID, compacted.ThreadID)
+}
+
 func TestInstalledCodexReadOnlyTurn(t *testing.T) {
 	if os.Getenv("AWB_REAL_CODEX_TURN") != "1" {
 		t.Skip("explicit real model verification")

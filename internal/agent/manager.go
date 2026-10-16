@@ -700,6 +700,96 @@ func (m *Manager) CloseSession(id string) error {
 	return err
 }
 
+// Compact 清空原生上下文：在现有连接上重建 thread，保留工作台会话、选项与全部日志。
+func (m *Manager) Compact(ctx context.Context, id string) (Session, error) {
+	m.mu.Lock()
+	r := m.sessions[id]
+	if m.closed || r == nil || r.deleting {
+		m.mu.Unlock()
+		return Session{}, errors.New("会话不存在")
+	}
+	if r.client == nil || r.State != "idle" || r.busy || r.ActiveInput != nil || r.ActiveTurnID != "" || len(r.Queue) != 0 || len(r.Requests) != 0 {
+		m.mu.Unlock()
+		return Session{}, errors.New("仅空闲且已连接、无队列的会话可清空上下文")
+	}
+	c := r.client
+	previousThread := r.ThreadID
+	params := map[string]any{"cwd": m.cwd, "sandbox": r.Options.Sandbox, "approvalPolicy": r.Options.ApprovalPolicy, "approvalsReviewer": "user"}
+	if r.Options.Model != "" {
+		params["model"] = r.Options.Model
+	}
+	r.State = "starting"
+	if err := m.persistLocked(r); err != nil {
+		r.State = "idle"
+		m.mu.Unlock()
+		return Session{}, err
+	}
+	m.mu.Unlock()
+	requestContext, cancel := context.WithTimeout(ctx, 25*time.Second)
+	defer cancel()
+	value, err := c.Call(requestContext, "thread/start", params)
+	var native struct {
+		Thread struct {
+			ID string `json:"id"`
+		} `json:"thread"`
+		Model             string          `json:"model"`
+		Sandbox           json.RawMessage `json:"sandbox"`
+		ApprovalPolicy    json.RawMessage `json:"approvalPolicy"`
+		ApprovalsReviewer string          `json:"approvalsReviewer"`
+	}
+	if err == nil {
+		err = json.Unmarshal(value, &native)
+		if err == nil && native.Thread.ID == "" {
+			err = errors.New("原生会话未返回 thread ID")
+		}
+	}
+	if err != nil {
+		m.mu.Lock()
+		select {
+		case <-c.done:
+		default:
+			if !m.closed && !r.deleting && r.State == "starting" {
+				r.State = "idle"
+				r.LastError = err.Error()
+				_ = m.persistLocked(r)
+			}
+		}
+		m.mu.Unlock()
+		return Session{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || r.deleting || r.State == "closed" {
+		go c.Close()
+		return Session{}, errors.New("会话已关闭")
+	}
+	r.ThreadID = native.Thread.ID
+	r.Model = native.Model
+	r.Sandbox = native.Sandbox
+	r.ApprovalPolicy = native.ApprovalPolicy
+	r.ApprovalsReviewer = native.ApprovalsReviewer
+	r.State = "idle"
+	r.busy = false
+	r.Requests = []Request{}
+	r.ActiveTurnID = ""
+	r.ActiveInput = nil
+	r.LastTurnID = ""
+	r.LastTurnStatus = ""
+	r.LastError = ""
+	if r.ParentSessionID != "" {
+		r.DiscussionContext = nil
+		r.ContextUncertain = false
+	}
+	change, _ := json.Marshal(map[string]string{"previousThreadId": previousThread, "threadId": r.ThreadID, "reason": "已清空原生上下文并重建 thread；未重发任务"})
+	if err = m.recordLocked(r, "workbench/contextCleared", nil, change); err != nil {
+		return Session{}, err
+	}
+	if err = m.persistLocked(r); err != nil {
+		return Session{}, err
+	}
+	return cloneSession(r.Session), nil
+}
+
 // Close 只结束本 Manager 创建的子进程并释放状态目录。
 func (m *Manager) Close() {
 	m.mu.Lock()
