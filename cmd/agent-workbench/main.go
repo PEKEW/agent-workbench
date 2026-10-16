@@ -27,6 +27,7 @@ type options struct {
 	Port                                             int
 	NoBrowser                                        bool
 	AgentName, Model, Sandbox, Approval, CodexBinary string
+	Editor                                           string
 }
 
 func parseArgs(args []string) (options, error) {
@@ -48,6 +49,7 @@ func parseArgs(args []string) (options, error) {
 	flags.StringVar(&o.Sandbox, "sandbox", "", "read-only 或 workspace-write")
 	flags.StringVar(&o.Approval, "approval", "", "on-request 或 never")
 	flags.StringVar(&o.CodexBinary, "codex-bin", "", "本地 Codex 可执行文件路径")
+	flags.StringVar(&o.Editor, "editor", "", "外部编辑器命令，文件路径追加在末尾")
 	if err := flags.Parse(args); err != nil {
 		return o, err
 	}
@@ -95,12 +97,13 @@ func usage() {
 	fmt.Println(`Agent Workbench — 本地项目工作台
 
 用法：
-  agent-workbench [--port 端口] [--no-browser]
-  agent-workbench open [--port 端口] [--no-browser] <已有目录>
+  agent-workbench [--port 端口] [--no-browser] [--editor 命令]
+  agent-workbench open [--port 端口] [--no-browser] [--editor 命令] <已有目录>
   agent-workbench new --name <名称> [--port 端口] [--no-browser] <新目录>
   agent-workbench connect [--agent-name 名称] [--model 模型] [--sandbox read-only|workspace-write] [--approval on-request|never] [--no-browser] <项目目录>
 
-选项放在目录之前；默认打开浏览器。Ctrl+C 关闭服务。`)
+选项放在目录之前；默认打开浏览器。Ctrl+C 关闭服务。
+--editor 指定外部编辑器（如 code），按空格分隔参数；未指定时 macOS 使用默认文本编辑器。`)
 }
 func run(args []string) error {
 	o, err := parseArgs(args)
@@ -125,6 +128,7 @@ func run(args []string) error {
 	}
 	token := rand.Text()
 	handler := server.NewWithCodex(token, p, o.CodexBinary)
+	handler.SetExternalEditor(o.Editor)
 	defer handler.Close()
 	srv := &http.Server{Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 30 * time.Second, IdleTimeout: 60 * time.Second}
 	stopped := make(chan error, 1)

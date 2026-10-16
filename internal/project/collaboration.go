@@ -210,28 +210,38 @@ func (p *Project) SaveCollaboration(generation int, threads []Thread) (Collabora
 	for _, d := range state.Documents {
 		saved.Documents[d.ID] = d
 	}
+	if err = p.writeCollaboration(saved); err != nil {
+		return state, err
+	}
+	state.Generation = saved.Generation
+	state.Threads = threads
+	return state, nil
+}
+
+// writeCollaboration 在同目录写临时文件后替换，避免中断时留下半份讨论状态。
+func (p *Project) writeCollaboration(saved collaborationFile) error {
 	data, err := json.MarshalIndent(saved, "", "  ")
 	if err != nil {
-		return state, err
+		return err
 	}
 	if len(data) > maxCollaborationBytes {
-		return state, errors.New("讨论状态超过 16 MiB")
+		return errors.New("讨论状态超过 16 MiB")
 	}
 	if err = p.root.Mkdir(".agent-state", 0700); err != nil && !errors.Is(err, fs.ErrExist) {
-		return state, err
+		return err
 	}
 	if _, err = p.safeStat(".agent-state"); err != nil {
-		return state, err
+		return err
 	}
 	parent, err := p.root.OpenRoot(".agent-state")
 	if err != nil {
-		return state, err
+		return err
 	}
 	defer parent.Close()
 	name := ".collaboration-" + rand.Text() + ".tmp"
 	f, err := parent.OpenFile(name, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		return state, err
+		return err
 	}
 	defer parent.Remove(name)
 	if _, err = f.Write(data); err == nil {
@@ -239,15 +249,36 @@ func (p *Project) SaveCollaboration(generation int, threads []Thread) (Collabora
 	}
 	closeErr := f.Close()
 	if err != nil {
-		return state, err
+		return err
 	}
 	if closeErr != nil {
-		return state, closeErr
+		return closeErr
 	}
-	if err = parent.Rename(name, "collaboration.json"); err != nil {
-		return state, err
+	return parent.Rename(name, "collaboration.json")
+}
+
+// moveThreads 把讨论与正文版本记录从旧路径迁到新路径；没有讨论状态时不创建文件。
+func (p *Project) moveThreads(from, to string) error {
+	saved, err := p.collaborationFile()
+	if err != nil {
+		return err
 	}
-	state.Generation = saved.Generation
-	state.Threads = threads
-	return state, nil
+	changed := false
+	for i := range saved.Threads {
+		if saved.Threads[i].DocumentID == from {
+			saved.Threads[i].DocumentID = to
+			changed = true
+		}
+	}
+	if document, ok := saved.Documents[from]; ok {
+		delete(saved.Documents, from)
+		document.ID, document.Source, document.Title = to, to, to
+		saved.Documents[to] = document
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	saved.Generation++
+	return p.writeCollaboration(saved)
 }

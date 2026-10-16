@@ -35,6 +35,7 @@ type Info struct {
 	Name      string     `json:"name"`
 	Root      string     `json:"root"`
 	Documents []Document `json:"documents"`
+	Files     []Document `json:"files,omitempty"`
 	Warnings  []string   `json:"warnings"`
 }
 

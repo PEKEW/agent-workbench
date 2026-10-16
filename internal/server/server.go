@@ -26,6 +26,7 @@ type Server struct {
 	handler     http.Handler
 	agents      *agent.Manager
 	codexBinary string
+	editor      []string
 	syncMu      sync.Mutex
 	syncStop    chan struct{}
 	syncDone    chan struct{}
@@ -49,6 +50,7 @@ func NewWithCodex(token string, p *project.Project, binary string) *Server {
 	mux.HandleFunc("GET /api/collaboration", s.getCollaboration)
 	mux.HandleFunc("POST /api/collaboration", s.saveCollaboration)
 	s.registerAgents(mux)
+	s.registerFiles(mux)
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "接口不存在") })
 	web, _ := fs.Sub(assets, "web")
 	files := http.FileServer(http.FS(web))
@@ -139,7 +141,7 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request) {
 		respond(w, 200, nil)
 		return
 	}
-	info, err := s.project.Snapshot()
+	info, err := s.project.Overview()
 	if err != nil {
 		fail(w, 500, err.Error())
 		return
@@ -186,7 +188,7 @@ func (s *Server) bindProject(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
-	info, err := p.Snapshot()
+	info, err := p.Overview()
 	if err != nil {
 		p.Close()
 		fail(w, 500, err.Error())
