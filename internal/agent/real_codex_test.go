@@ -66,6 +66,112 @@ func TestInstalledCodexHandshake(t *testing.T) {
 	t.Logf("empty session reconnect: previous=%s current=%s", s.ThreadID, restoredSession.ThreadID)
 }
 
+// TestInstalledCodexAttachMissingRollout 验证接入不存在的 thread 直接返回原生错误，不静默重建。
+func TestInstalledCodexAttachMissingRollout(t *testing.T) {
+	if os.Getenv("AWB_REAL_CODEX") != "1" {
+		t.Skip("explicit real CLI verification")
+	}
+	binary, err := exec.LookPath("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err = os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte("# 临时验证项目\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(dir, "state")
+	if err = os.Mkdir(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewManager(dir, root, CodexCommand(binary))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	if _, err = m.Create(ctx, StartOptions{Name: "接入不存在", Sandbox: "read-only", ApprovalPolicy: "never", ResumeThreadID: "00000000-0000-0000-0000-000000000000"}); err == nil || !strings.Contains(err.Error(), "no rollout found") {
+		t.Fatal("missing rollout silently recreated", err)
+	}
+}
+
+// TestInstalledCodexAttachThread 验证按 ID 接入本机已有原生 thread；需要一次最小真实回合产生原生历史。
+func TestInstalledCodexAttachThread(t *testing.T) {
+	if os.Getenv("AWB_REAL_CODEX_TURN") != "1" {
+		t.Skip("explicit real model verification")
+	}
+	binary, err := exec.LookPath("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err = os.WriteFile(filepath.Join(dir, "PLAN.md"), []byte("# 临时验证项目\nAWB_NATIVE_ATTACH_OK\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	state := filepath.Join(dir, "state")
+	if err = os.Mkdir(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(state)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, err := NewManager(dir, root, CodexCommand(binary))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	a, err := m.Create(ctx, StartOptions{Name: "原会话", Sandbox: "read-only", ApprovalPolicy: "never"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.Send(ctx, a.ID, "请仅回复标记 AWB_NATIVE_ATTACH_OK，不要执行任何工具或读取文件。"); err != nil {
+		t.Fatal(err)
+	}
+	awaitRealTurn(t, m, a.ID)
+	if err = m.CloseSession(a.ID); err != nil {
+		t.Fatal(err)
+	}
+	attached, err := m.Create(ctx, StartOptions{Name: "接入会话", Sandbox: "read-only", ApprovalPolicy: "never", ResumeThreadID: a.ThreadID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attached.ThreadID != a.ThreadID || attached.State != "idle" {
+		t.Fatalf("real attach did not resume thread: %s -> %s", a.ThreadID, attached.ThreadID)
+	}
+	t.Logf("native attach: thread=%s", attached.ThreadID)
+}
+
+func awaitRealTurn(t *testing.T, m *Manager, id string) {
+	t.Helper()
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		current, err := m.Get(id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if current.State == "waiting" {
+			t.Fatalf("native request requires human response: %+v", current.Requests)
+		}
+		if current.State == "idle" && current.LastTurnStatus != "" {
+			if current.LastTurnStatus != "completed" {
+				t.Fatalf("native turn %s: %s", current.LastTurnStatus, current.LastError)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("turn timeout")
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+}
+
 func TestInstalledCodexCompact(t *testing.T) {
 	if os.Getenv("AWB_REAL_CODEX") != "1" {
 		t.Skip("explicit real CLI verification")

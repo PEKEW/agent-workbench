@@ -19,6 +19,7 @@ func (s *Server) registerAgents(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/memory/health", s.memoryHealth)
 	mux.HandleFunc("GET /api/memory/endpoint", s.memoryEndpoint)
 	mux.HandleFunc("GET /api/agents", s.listAgents)
+	mux.HandleFunc("GET /api/agents/threads", s.listNativeThreads)
 	mux.HandleFunc("GET /api/authorizations", s.authorizations)
 	mux.HandleFunc("POST /api/authorizations", s.authorizations)
 	mux.HandleFunc("POST /api/agents", s.createAgent)
@@ -89,6 +90,24 @@ func (s *Server) listAgents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond(w, 200, m.List())
+}
+
+// listNativeThreads 临时启动原生进程列出本机已保存的 thread，供新建会话时挑选接入目标。
+func (s *Server) listNativeThreads(w http.ResponseWriter, r *http.Request) {
+	s.mu.RLock()
+	if s.project == nil {
+		s.mu.RUnlock()
+		fail(w, 409, "请先打开项目")
+		return
+	}
+	root, binary := s.project.Root(), s.codexBinary
+	s.mu.RUnlock()
+	threads, err := agent.ListNativeThreads(r.Context(), root, agent.CodexCommand(binary))
+	if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	respond(w, 200, threads)
 }
 
 // CreateAgent 供专用 connect 命令及固定 HTTP 接口创建原生会话。

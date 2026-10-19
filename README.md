@@ -74,7 +74,7 @@ go build -o bin/agent-workbench ./cmd/agent-workbench
 
 ## 接入 Codex
 
-在网页的“Agent 会话”中启动 Codex，或通过专用命令同时打开项目与新会话：
+在网页的“Agent 会话”中启动 Codex，或通过专用命令同时打开项目与新会话；也可以接入本机已有的原生 thread（新建会话对话框填写 thread ID，或点「载入本机原生会话」从列表选择），让工作台会话与 CLI 会话共享同一原生历史：
 
 ```sh
 ./bin/agent-workbench connect --agent-name Codex /path/to/project

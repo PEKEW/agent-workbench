@@ -124,6 +124,11 @@ func TestSessionValidationAndSymlinkStorage(t *testing.T) {
 			t.Fatal("invalid policy accepted")
 		}
 	}
+	for _, options := range []StartOptions{{Name: "x", ResumeThreadID: strings.Repeat("t", 201)}, {Name: "x", ResumeThreadID: "bad\nid"}} {
+		if _, err := m.Create(context.Background(), options); err == nil {
+			t.Fatal("invalid resume thread id accepted")
+		}
+	}
 	if _, err := m.Get("../outside"); err == nil {
 		t.Fatal("invalid session accepted")
 	}
@@ -522,4 +527,68 @@ func TestCompactClearsDiscussionBaseline(t *testing.T) {
 	awaitSession(t, m, child.ID, func(s Session) bool {
 		return s.State == "idle" && s.LastTurnStatus == "completed" && s.DiscussionContext != nil && s.DiscussionContext.ThreadID == compacted.ThreadID
 	})
+}
+
+func TestCreateAttachesExistingNativeThread(t *testing.T) {
+	m, _ := testManager(t)
+	ctx := context.Background()
+	attached, err := m.Create(ctx, StartOptions{Name: "接入", ResumeThreadID: "cli-thread-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attached.ThreadID != "cli-thread-1" || attached.State != "idle" {
+		t.Fatalf("attach did not resume thread: %+v", attached)
+	}
+	if _, err = m.Send(ctx, attached.ID, "hello"); err != nil {
+		t.Fatal(err)
+	}
+	awaitSession(t, m, attached.ID, func(s Session) bool { return s.State == "idle" && s.LastTurnStatus == "completed" })
+}
+
+func TestAttachDoesNotRecreateMissingRollout(t *testing.T) {
+	m, _ := testManager(t)
+	m.factory = func() *exec.Cmd {
+		cmd := helperCommand()
+		cmd.Env = append(cmd.Env, "AWB_RESUME_MISSING=1")
+		return cmd
+	}
+	if _, err := m.Create(context.Background(), StartOptions{Name: "接入缺失", ResumeThreadID: "cli-thread-gone"}); err == nil || !strings.Contains(err.Error(), "no rollout found") {
+		t.Fatal("missing rollout silently recreated", err)
+	}
+	sessions := m.List()
+	if len(sessions) != 1 || sessions[0].State != "disconnected" || sessions[0].ThreadID != "cli-thread-gone" {
+		t.Fatalf("attach failure altered session: %+v", sessions)
+	}
+}
+
+func TestAttachedParentDiscussionStartsFreshThread(t *testing.T) {
+	m, _ := testManager(t)
+	ctx := context.Background()
+	parent, err := m.Create(ctx, StartOptions{Name: "父", ResumeThreadID: "cli-thread-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parent.ThreadID != "cli-thread-1" {
+		t.Fatal("parent not attached", parent.ThreadID)
+	}
+	child, err := m.CreateDiscussion(ctx, parent.ID, "PLAN.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if child.ThreadID == "" || child.ThreadID == "cli-thread-1" {
+		t.Fatal("discussion inherited attached thread", child.ThreadID)
+	}
+}
+
+func TestListNativeThreads(t *testing.T) {
+	threads, err := ListNativeThreads(context.Background(), t.TempDir(), helperCommand)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(threads) != 2 || threads[0].ID != "native-new" || threads[1].ID != "native-old" {
+		t.Fatalf("native threads: %+v", threads)
+	}
+	if threads[0].Name != "新会话" || threads[0].UpdatedAt == "" {
+		t.Fatalf("native thread fields: %+v", threads[0])
+	}
 }

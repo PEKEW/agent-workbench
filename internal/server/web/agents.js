@@ -193,14 +193,24 @@ function forwardThreadToAgent(id){
  },'打开讨论会话');
  const preferred=getAgent()?.parentSessionId||selectedAgent;if(parents.some(s=>s.id===preferred))$('discussion-parent-agent').value=preferred;
 }
-$('new-agent').onclick=()=>{$('new-agent-error').hidden=true;$('agent-dialog').showModal();};
+$('new-agent').onclick=()=>{$('new-agent-error').hidden=true;$('new-agent-thread-id').value='';$('new-agent-thread-pick').hidden=true;$('agent-dialog').showModal();};
+$('new-agent-list-threads').onclick=async()=>{
+  try{
+    const threads=await api('agents/threads');
+    const pick=$('new-agent-thread-pick');pick.replaceChildren();
+    const blank=document.createElement('option');blank.value='';blank.textContent=threads.length?'选择要接入的原生会话':'本机没有可接入的原生会话';pick.append(blank);
+    for(const thread of threads){const option=document.createElement('option');option.value=thread.id;option.textContent=`${thread.name||thread.id} · ${thread.id}`;pick.append(option);}
+    pick.hidden=false;showError(null);
+  }catch(error){showError(error);}
+};
+$('new-agent-thread-pick').onchange=()=>{if($('new-agent-thread-pick').value)$('new-agent-thread-id').value=$('new-agent-thread-pick').value;};
 $('cancel-new-agent').onclick=()=>$('agent-dialog').close();
 let creatingAgent=false;
 $('agent-dialog').addEventListener('cancel',event=>{if(creatingAgent)event.preventDefault();});
 $('new-agent-form').onsubmit=async event=>{
   event.preventDefault();if(creatingAgent)return;creatingAgent=true;$('create-agent').disabled=true;$('cancel-new-agent').disabled=true;
   try{
-    const session=await api('agents',{name:$('new-agent-name').value.trim(),model:$('new-agent-model').value.trim(),sandbox:$('new-agent-sandbox').value,approvalPolicy:$('new-agent-approval').value});
+    const session=await api('agents',{name:$('new-agent-name').value.trim(),model:$('new-agent-model').value.trim(),sandbox:$('new-agent-sandbox').value,approvalPolicy:$('new-agent-approval').value,resumeThreadId:$('new-agent-thread-id').value.trim()});
     selectAgent(session.id);$('agent-dialog').close();await refreshAgents();
   }catch(error){$('new-agent-error').textContent=error.message;$('new-agent-error').hidden=false;}
   finally{creatingAgent=false;$('create-agent').disabled=false;$('cancel-new-agent').disabled=false;}

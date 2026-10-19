@@ -12,6 +12,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -21,6 +22,8 @@ type StartOptions struct {
 	Model          string `json:"model"`
 	Sandbox        string `json:"sandbox"`
 	ApprovalPolicy string `json:"approvalPolicy"`
+	// ResumeThreadID 非空时接入本机已有原生 thread，而非新建上下文。
+	ResumeThreadID string `json:"resumeThreadId,omitempty"`
 }
 type Input struct {
 	ID        string             `json:"id"`
@@ -159,6 +162,10 @@ func validateOptions(o *StartOptions) error {
 	if o.ApprovalPolicy != "on-request" && o.ApprovalPolicy != "never" {
 		return errors.New("审批策略必须为 on-request 或 never")
 	}
+	o.ResumeThreadID = strings.TrimSpace(o.ResumeThreadID)
+	if strings.IndexFunc(o.ResumeThreadID, unicode.IsControl) >= 0 || len(o.ResumeThreadID) > 200 {
+		return errors.New("原生 thread ID 含控制字符或超过 200 字符")
+	}
 	return nil
 }
 func (m *Manager) Create(ctx context.Context, o StartOptions) (Session, error) {
@@ -198,6 +205,10 @@ func (m *Manager) create(ctx context.Context, o StartOptions, parentID, document
 	}
 	r := &runtimeSession{Session: Session{ID: rand.Text(), Name: o.Name, Options: o, State: "starting", CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Queue: []Input{}, Requests: []Request{}}, answering: map[string]bool{}, completedTurns: map[string]bool{}, recent: []Event{}}
 	r.ParentSessionID, r.DocumentID = parentID, documentID
+	if parentID == "" && o.ResumeThreadID != "" {
+		// 接入本机已有原生 thread：记录预置 thread ID，走 thread/resume 连接历史。
+		r.ThreadID = o.ResumeThreadID
+	}
 	m.sessions[r.ID] = r
 	if err := m.persistLocked(r); err != nil {
 		delete(m.sessions, r.ID)
@@ -205,7 +216,7 @@ func (m *Manager) create(ctx context.Context, o StartOptions, parentID, document
 		return Session{}, err
 	}
 	m.mu.Unlock()
-	return m.start(ctx, r, false)
+	return m.start(ctx, r, o.ResumeThreadID != "")
 }
 func (m *Manager) start(ctx context.Context, r *runtimeSession, resume bool) (Session, error) {
 	command := m.factory()
@@ -244,7 +255,8 @@ func (m *Manager) start(ctx context.Context, r *runtimeSession, resume bool) (Se
 	}
 	previousThread := ""
 	var rpcErr *nativeRPCError
-	if resume && errors.As(err, &rpcErr) && rpcErr.Code == -32600 && rpcErr.Message == "no rollout found for thread id "+r.ThreadID {
+	// 空会话重建只适用于工作台自建的 thread；按 ID 接入时直接返回原生错误，不静默替换用户指定的历史。
+	if resume && r.Options.ResumeThreadID == "" && errors.As(err, &rpcErr) && rpcErr.Code == -32600 && rpcErr.Message == "no rollout found for thread id "+r.ThreadID {
 		m.mu.Lock()
 		empty, checkErr := m.canRecreateEmptyLocked(r)
 		m.mu.Unlock()

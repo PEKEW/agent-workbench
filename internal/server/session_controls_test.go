@@ -3,6 +3,7 @@ package server
 import (
 	"agent-workbench/internal/agent"
 	"agent-workbench/internal/project"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -90,5 +91,26 @@ func TestCompactHTTP(t *testing.T) {
 	defer empty.Close()
 	if w := request(t, empty, "POST", "/api/agents/anything/compact", `{}`, testToken, ""); w.Code != 404 {
 		t.Fatal("compact without manager", w.Code)
+	}
+}
+func TestAttachThreadAndListNativeThreadsHTTP(t *testing.T) {
+	s, _ := discussionServer(t)
+	var attached agent.Session
+	if code := jsonRequest(t, s, "/api/agents", map[string]string{"name": "接入", "resumeThreadId": "fixture-cli-thread"}, &attached); code != 201 {
+		t.Fatal("attach", code)
+	}
+	if attached.ThreadID != "fixture-cli-thread" {
+		t.Fatal("thread id not resumed", attached.ThreadID)
+	}
+	w := request(t, s, "GET", "/api/agents/threads", "", testToken, "")
+	if w.Code != 200 {
+		t.Fatal("list threads", w.Code, w.Body.String())
+	}
+	var threads []agent.NativeThread
+	if err := json.Unmarshal(w.Body.Bytes(), &threads); err != nil {
+		t.Fatal(err)
+	}
+	if len(threads) != 2 || threads[0].UpdatedAt < threads[1].UpdatedAt || threads[1].ID != "fixture-thread-old" {
+		t.Fatal("native thread list", threads)
 	}
 }

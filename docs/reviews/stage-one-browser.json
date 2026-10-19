@@ -42,6 +42,7 @@
   "manualReplyToDiscussion": true,
   "manualDiscussionForward": true,
   "queueInterruptResume": true,
+  "attachThreadById": true,
   "nativeApprovalRoute": true,
   "nativeQuestionRoute": true,
   "nativeQuestionFocusPreserved": true,

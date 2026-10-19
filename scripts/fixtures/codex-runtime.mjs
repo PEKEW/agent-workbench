@@ -20,6 +20,7 @@ function finish(status='completed'){
 lines.on('line',line=>{
   const m=JSON.parse(line),p=m.params||{};
   if(m.method==='initialize'){send({id:m.id,result:{userAgent:'fixture'}});return;}
+  if(m.method==='thread/list'){send({id:m.id,result:{data:[{id:'fixture-thread-old',name:'旧原生会话',updatedAt:100},{id:'fixture-thread-'+process.pid,name:'Fixture 会话',updatedAt:200}],nextCursor:null}});return;}
   if(m.method==='initialized')return;
  if(m.method==='hooks/list'){send({id:m.id,result:{data:[{hooks:[{key:'fixture-memory-hook',currentHash:'fixture-hash',pluginId:'claude-mem@claude-mem-local',command:'fixture memory hook',enabled:true,eventName:'postToolUse',trustStatus:hookTrusted?'trusted':'untrusted',sourcePath:'/fixture/hooks.json'}],warnings:[]}]}});return;}
  if(m.method==='config/read'){send({id:m.id,result:{layers:[{name:{type:'user'},version:hookTrusted?'V2':'V1'}]}});return;}

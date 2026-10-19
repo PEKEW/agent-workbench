@@ -148,6 +148,9 @@ func Open(path string) (*Project, error) {
 // Close 释放根目录句柄。
 func (p *Project) Close() error { return p.root.Close() }
 
+// Root 返回项目根目录绝对路径，供需要工作目录的本地流程使用。
+func (p *Project) Root() string { return p.path }
+
 func (p *Project) safeStat(path string) (fs.FileInfo, error) {
 	if !fs.ValidPath(path) || strings.Contains(path, "\\") {
 		return nil, errors.New("无效的项目相对路径")

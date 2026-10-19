@@ -45,6 +45,11 @@ func TestRuntimeHelper(t *testing.T) {
 		switch method {
 		case "initialize":
 			send(map[string]any{"id": id, "result": map[string]any{"userAgent": "test-runtime"}})
+		case "thread/list":
+			send(map[string]any{"id": id, "result": map[string]any{"data": []any{
+				map[string]any{"id": "native-old", "name": "旧会话", "updatedAt": 100},
+				map[string]any{"id": "native-new", "name": "新会话", "updatedAt": 200},
+			}, "nextCursor": nil}})
 		case "hooks/list":
 			send(map[string]any{"id": id, "result": map[string]any{"data": []any{map[string]any{"hooks": []any{map[string]any{"key": "mem-hook", "currentHash": "H", "pluginId": "claude-mem@claude-mem-local", "command": "memory", "enabled": true, "trustStatus": "untrusted"}}, "warnings": []string{}}}}})
 		case "config/read":
@@ -54,6 +59,11 @@ func TestRuntimeHelper(t *testing.T) {
 		case "initialized":
 		case "thread/start", "thread/resume":
 			cwd = params["cwd"]
+			if method == "thread/resume" {
+				if tid, ok := params["threadId"].(string); ok && tid != "" {
+					threadID = tid
+				}
+			}
 			if method == "thread/start" && os.Getenv("AWB_THREAD_SEQUENCE") == "1" {
 				threadSeq++
 				threadID = fmt.Sprintf("native-thread-%d", threadSeq)

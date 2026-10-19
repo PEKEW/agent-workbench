@@ -65,3 +65,8 @@ Go 项目入口、文档阅读与 Archify iframe 已实现。关键验证与截�
 
 - 图与源文件按名称配对（同目录、主名相同或以「<主名>.」为前缀的首个 `.json` 等源文件）；`GET /api/diagram` 返回 `source`，图视图显示源文件路径并复用「编辑原文」编辑器修改，沿用版本冲突保护与只读区域；保存只改源文件，不自动重新生成 HTML，iframe 隔离策略不变。
 - 验证：project 配对/读写/只读测试、服务端 HTTP 测试、浏览器冒烟（含保存与取消路径、生成 HTML 不被触碰）全部通过；workbench_spec 新增「交互图源文件」小节，README 已同步。
+
+## 2026-10-16 按 thread ID 接入原生会话（#3）
+
+- `StartOptions.ResumeThreadID`：新建会话可经 thread/resume 接入本机已有原生历史；接入错误直接返回，不静默重建；讨论专用会话始终新建 thread。新建对话框增加 thread ID 字段与「载入本机原生会话」选择器（服务临时启动原生进程 thread/list，不依赖会话存储）。
+- 验证：fake 进程与 HTTP 测试、UI harness、浏览器冒烟通过；真实 CLI 验证——接入不存在 thread 返回 no rollout found 不重建（AWB_REAL_CODEX=1），接入已有一回合的 thread 恢复同一 thread（AWB_REAL_CODEX_TURN=1）；codex_access_spec 与 README 已同步。

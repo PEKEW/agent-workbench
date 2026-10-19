@@ -129,6 +129,7 @@ func (m *Manager) CreateDiscussion(ctx context.Context, parentID, documentID str
 	if parent.Model != "" {
 		options.Model = parent.Model
 	}
+	options.ResumeThreadID = ""
 	options.Name = "讨论 · " + parent.Name
 	if len([]rune(options.Name)) > 80 {
 		options.Name = string([]rune(options.Name)[:80])
