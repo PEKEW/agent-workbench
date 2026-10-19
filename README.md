@@ -12,11 +12,11 @@ Agent Workbench 是单项目本地网页工作台，把 Markdown 文档、批注
 | 文档 | Markdown 阅读、LaTeX 公式渲染、原文编辑保存、新建、重命名与删除、外部刷新、版本冲突保护与冲突差异对比；目录树导航，工程文件默认折叠；文件栏与批注栏可收起 |
 | 代码文件 | 目录树中只读查看代码与其他文本文件，通过 `--editor` 指定的外部编辑器打开 |
 | 批注 | 引用批注、整篇意见、备忘、回复、Rebuttal、结论、解决与重开；批注编辑框和展开的讨论显示在正文所引段落下方 |
-| Agent | Codex 新会话、任务预览与发送、排队、中断、清空上下文、关闭、显式恢复和删除 |
+| Agent | Codex 新会话、按 thread ID 接入本机已有原生会话、直接发送或先预览、排队、中断、清空上下文、关闭、显式恢复和删除 |
 | 讨论交付 | 文档页直接请 Agent 回复并显示处理状态、每份文档一个讨论会话、增量材料、按文档批量交付、最终回复按讨论分段自动写回、结论送回工作会话 |
 | 执行反馈 | 对话与执行双时间线、文件修改逐行差异、完整原始日志、执行状态与交互提醒 |
 | 权限 | 原生审批与问题响应、项目或会话范围的命令前缀授权及撤销 |
-| 交互图 | iframe 展示 Archify 等工具生成的独立 HTML |
+| 交互图 | iframe 展示 Archify 等工具生成的独立 HTML，配对源文件可在网页中编辑 |
 | 可选记忆 | Claude-Mem 本地查看器、Codex 原生记忆插件的 hooks 查看与显式信任 |
 
 ## 环境要求
@@ -72,9 +72,21 @@ go build -o bin/agent-workbench ./cmd/agent-workbench
 ./bin/agent-workbench open --editor code /path/to/project
 ```
 
+### 更新已有安装
+
+工作台没有自动更新。拉取最新源码后重新构建，再重启服务：
+
+```sh
+cd /path/to/agent-workbench
+git pull
+go build -o bin/agent-workbench ./cmd/agent-workbench
+```
+
+构建不影响正在运行的服务，重启后才使用新版本。按 Ctrl+C 关闭旧服务，再用同样的命令重新打开项目，并使用终端输出的新地址。同一项目只保留一个服务进程。重启后 Codex 会话标为已断开，点击“恢复会话”继续原生 thread；批注、讨论和会话记录保存在项目 `.agent-state/` 中，不受更新影响。
+
 ## 接入 Codex
 
-在网页的“Agent 会话”中启动 Codex，或通过专用命令同时打开项目与新会话；也可以接入本机已有的原生 thread（新建会话对话框填写 thread ID，或点「载入本机原生会话」从列表选择），让工作台会话与 CLI 会话共享同一原生历史：
+在网页的“Agent 会话”中启动 Codex，或通过专用命令同时打开项目与新会话：
 
 ```sh
 ./bin/agent-workbench connect --agent-name Codex /path/to/project
@@ -90,7 +102,9 @@ go build -o bin/agent-workbench ./cmd/agent-workbench
 
 此命令启动新的 `codex app-server` 会话，日常输入由网页接收。当前最多同时连接 8 个原生会话，讨论参与会话也计入此限制。
 
-1. 输入任务，预览实际发送材料，再明确发送。
+也可以接入本机已有的原生 thread：在新建会话对话框中填写 thread ID，或点「载入本机原生会话」从列表选择。接入通过 thread/resume 连接，工作台会话与 CLI 会话共享同一原生历史；thread 不存在或缺少 rollout 时直接报错，不会新建空会话替代。工作台不接管正在运行的 TUI，两边同时输入的行为尚未验证。
+
+1. 输入任务后直接发送；需要核对实际发送材料时先点“预览任务”。
 2. 在对话区查看回复，在执行区查看命令、工具事件与审批。
 3. 需要批准或回答原生问题时，通过对应交互控件响应。
 4. 忙碌时输入进入队列；失败或中断后队列暂停，可人工继续或清空。
@@ -164,7 +178,9 @@ npx claude-mem start
 
 ## 1.0 范围与交付状态
 
-当前范围是单机文档协作与 Codex 会话工作台。以下能力尚未实现：其他 Agent 运行时适配、已有 TUI 接管及控制权取回、统一共享任务管理、多 Agent 自动讨论调度、可视化 Git 合并、代码编辑器或 VS Code／nvim 接入、Archify 自动生成、模板升级与迁移。
+当前范围是单机文档协作与 Codex 会话工作台。以下能力尚未实现：其他 Agent 运行时适配、运行中 TUI 接管及控制权取回、统一共享任务管理、多 Agent 自动讨论调度、可视化 Git 合并、网页内代码编辑及编辑器双向同步、Archify 自动生成、模板升级与迁移。
+
+已登记的后续工作见 [GitHub Issues](https://github.com/PEKEW/agent-workbench/issues)，包括单条讨论消息的编辑与删除（#19）、外部文件修改自动检测（#11）、Claude、Kimi 等其他运行时（#13）、可配置任务指令模板（#4）和版本发布流程（#16）。
 
 多个会话共享项目目录，版本保存和合并仍通过 Git 操作并人工审阅。当前不默认建立 worktree；没有远程多人账户或多项目进程管理。
 
@@ -188,7 +204,7 @@ node scripts/batch_discussion_ui_test.mjs
 node scripts/conversation_ui_test.mjs
 ```
 
-构建后运行 `node scripts/browser_smoke.mjs`，使用临时项目和独立 Chrome 配置，结果写入 `docs/reviews/`。Chrome 路径可通过 `CHROME_BIN` 指定。该检查使用测试协议进程；真实 Codex 和记忆链路另有验证，不能相互替代。真实模型检查会产生模型调用，运行方法见对应验证记录。
+构建后运行 `node scripts/browser_smoke.mjs`（Node.js 20 需加 `--experimental-websocket`，22 及以上不需要），使用临时项目和独立 Chrome 配置，结果写入 `docs/reviews/`。Chrome 路径可通过 `CHROME_BIN` 指定。该检查使用测试协议进程；真实 Codex 和记忆链路另有验证，不能相互替代。真实模型检查会产生模型调用，运行方法见对应验证记录。
 
 源码布局：`cmd/agent-workbench` 为命令入口，`internal/project` 管理项目与内嵌模板，`internal/agent` 适配原生运行时，`internal/server` 提供 HTTP 和内嵌网页，`scripts` 保存检查工具。
 
