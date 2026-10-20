@@ -198,8 +198,8 @@ $('new-agent-list-threads').onclick=async()=>{
   try{
     const threads=await api('agents/threads');
     const pick=$('new-agent-thread-pick');pick.replaceChildren();
-    const blank=document.createElement('option');blank.value='';blank.textContent=threads.length?'选择要接入的原生会话':'本机没有可接入的原生会话';pick.append(blank);
-    for(const thread of threads){const option=document.createElement('option');option.value=thread.id;option.textContent=`${thread.name||thread.id} · ${thread.id}`;pick.append(option);}
+    const blank=document.createElement('option');blank.value='';blank.textContent=threads.length?'选择要接入的原生会话（本项目，按最近使用排序）':'本项目没有可接入的原生会话';pick.append(blank);
+    for(const thread of threads){const option=document.createElement('option');option.value=thread.id;const time=new Date(thread.updatedAt);option.textContent=`${isNaN(time)?'':time.toLocaleString('zh-CN',{month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'})+' · '}${thread.name||thread.preview||'未命名会话'} · …${thread.id.slice(-12)}`;option.title=thread.id;pick.append(option);}
     pick.hidden=false;showError(null);
   }catch(error){showError(error);}
 };

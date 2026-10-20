@@ -585,10 +585,26 @@ func TestListNativeThreads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(threads) != 2 || threads[0].ID != "native-new" || threads[1].ID != "native-old" {
-		t.Fatalf("native threads: %+v", threads)
+	if len(threads) != 3 || threads[0].ID != "native-resumed" || threads[1].ID != "native-new" || threads[2].ID != "native-old" {
+		t.Fatalf("native threads not ordered by update time: %+v", threads)
 	}
-	if threads[0].Name != "新会话" || threads[0].UpdatedAt == "" {
-		t.Fatalf("native thread fields: %+v", threads[0])
+	if threads[0].Preview == "" || threads[1].Name != "新会话" || threads[0].UpdatedAt == "" {
+		t.Fatalf("native thread fields: %+v", threads)
+	}
+}
+
+// 旧版原生不支持 sortKey 时退回不带筛选的请求，仍按更新时间排序。
+func TestListNativeThreadsFallsBackForOldRuntime(t *testing.T) {
+	old := func() *exec.Cmd {
+		cmd := helperCommand()
+		cmd.Env = append(cmd.Env, "AWB_OLD_THREAD_LIST=1")
+		return cmd
+	}
+	threads, err := ListNativeThreads(context.Background(), t.TempDir(), old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(threads) != 3 || threads[0].ID != "native-resumed" {
+		t.Fatalf("fallback list: %+v", threads)
 	}
 }

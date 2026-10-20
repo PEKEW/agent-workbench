@@ -17,6 +17,10 @@ func helperCommand() *exec.Cmd {
 	cmd.Env = append(os.Environ(), "AWB_RUNTIME_HELPER=1")
 	return cmd
 }
+func sorted(params map[string]any) bool {
+	cwd, _ := params["cwd"].(string)
+	return cwd != "" && params["sortKey"] == "updated_at"
+}
 func TestRuntimeHelper(t *testing.T) {
 	if os.Getenv("AWB_RUNTIME_HELPER") != "1" {
 		return
@@ -46,9 +50,19 @@ func TestRuntimeHelper(t *testing.T) {
 		case "initialize":
 			send(map[string]any{"id": id, "result": map[string]any{"userAgent": "test-runtime"}})
 		case "thread/list":
+			if _, sorted := params["sortKey"]; sorted && os.Getenv("AWB_OLD_THREAD_LIST") == "1" {
+				send(map[string]any{"id": id, "error": map[string]any{"code": -32600, "message": "Invalid request: unknown field `sortKey`"}})
+				continue
+			}
+			if !sorted(params) && os.Getenv("AWB_OLD_THREAD_LIST") != "1" {
+				send(map[string]any{"id": id, "error": map[string]any{"code": -32600, "message": "expected cwd and sortKey updated_at"}})
+				continue
+			}
+			// 原生默认按创建时间新→旧返回：先创建、后继续使用的会话排在后面。
 			send(map[string]any{"id": id, "result": map[string]any{"data": []any{
-				map[string]any{"id": "native-old", "name": "旧会话", "updatedAt": 100},
 				map[string]any{"id": "native-new", "name": "新会话", "updatedAt": 200},
+				map[string]any{"id": "native-resumed", "name": "", "preview": "早先创建、今天继续的会话", "updatedAt": 300},
+				map[string]any{"id": "native-old", "name": "旧会话", "updatedAt": 100},
 			}, "nextCursor": nil}})
 		case "hooks/list":
 			send(map[string]any{"id": id, "result": map[string]any{"data": []any{map[string]any{"hooks": []any{map[string]any{"key": "mem-hook", "currentHash": "H", "pluginId": "claude-mem@claude-mem-local", "command": "memory", "enabled": true, "trustStatus": "untrusted"}}, "warnings": []string{}}}}})

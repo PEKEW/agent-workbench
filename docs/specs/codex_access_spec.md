@@ -18,7 +18,7 @@
 
 状态包括 starting、idle、running、waiting、disconnected 和 closed。按原生 turn/completed 的 completed／failed／interrupted 展示回合结果；失败不能当作完成。回合开始前占用输入入口，多个网页不能同时启动两个回合。忙碌时输入进入有界队列，正常完成后逐条发送；失败或中断时队列暂停，人工决定继续或清空。队列与发送状态明确记录，服务重启不自动重放。
 
-网页断线不结束运行，轮询按事件序号补齐。关闭会话或服务终止自有子进程并释放 pipe；不会结束其他 Codex 进程。恢复服务后读取历史和原生 thread ID，标记 disconnected，用户明确恢复后调用 thread/resume；除按 ID 接入外，本阶段只恢复本工作台记录的会话，不自动搜索全部 Codex 历史。新建会话可填写本机已有原生 thread ID（或从 thread/list 选择）直接接入该历史，走 thread/resume 连接；no rollout found 等接入错误直接返回，不静默重建空会话替换用户指定的 thread，讨论专用会话始终新建独立 thread。 Codex 0.160.0 的空会话关闭后可能尚无 rollout：仅在原生明确返回该 thread 的 no rollout found、且完整日志与状态确认从未接收任何输入／开始回合时，重新创建原生空会话，保留工作台会话 ID、选项和日志，记录旧／新 thread ID 并在网页说明。任何已有输入或回合证据、未知错误或上下文丢失均不自动创建替代会话。用户主动清空上下文后，重建证据以 workbench/contextCleared 事件为重置点：该事件之前的历史输入不再阻止空会话重建。
+网页断线不结束运行，轮询按事件序号补齐。关闭会话或服务终止自有子进程并释放 pipe；不会结束其他 Codex 进程。恢复服务后读取历史和原生 thread ID，标记 disconnected，用户明确恢复后调用 thread/resume；除按 ID 接入外，本阶段只恢复本工作台记录的会话，不自动搜索全部 Codex 历史。新建会话可填写本机已有原生 thread ID（或从 thread/list 选择）直接接入该历史；列表只列出当前项目目录下的会话，按最近更新时间排序，最多 50 条，显示名称或首条输入摘要，原生版本不支持该筛选时退回未筛选列表并按更新时间排序。走 thread/resume 连接；no rollout found 等接入错误直接返回，不静默重建空会话替换用户指定的 thread，讨论专用会话始终新建独立 thread。 Codex 0.160.0 的空会话关闭后可能尚无 rollout：仅在原生明确返回该 thread 的 no rollout found、且完整日志与状态确认从未接收任何输入／开始回合时，重新创建原生空会话，保留工作台会话 ID、选项和日志，记录旧／新 thread ID 并在网页说明。任何已有输入或回合证据、未知错误或上下文丢失均不自动创建替代会话。用户主动清空上下文后，重建证据以 workbench/contextCleared 事件为重置点：该事件之前的历史输入不再阻止空会话重建。
 
 协议没有原生 compact 操作。已连接且空闲、无队列、无待回应请求的会话可清空上下文：在现有原生连接上重新 thread/start 得到新 thread，保留工作台会话 ID、名称、选项与全部日志，记录 workbench/contextCleared（旧／新 thread ID 与原因）；讨论会话清空后讨论基线一并重置，下一次预览按完整材料重发。运行中、等待响应、连接中、断开或排队时拒绝清空；清空失败且原生进程仍存活时会话恢复空闲并记录错误。
 
