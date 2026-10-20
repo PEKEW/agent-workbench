@@ -170,9 +170,6 @@ func (m *Manager) deliverDiscussionLocked(r *runtimeSession, input Input, turnID
 
 // observeDiscussionLocked 同时供实时事件和完整日志恢复使用。
 func (m *Manager) observeDiscussionLocked(r *runtimeSession, method string, params json.RawMessage) {
-	if r.ParentSessionID == "" {
-		return
-	}
 	var p struct {
 		ThreadID string `json:"threadId"`
 		TurnID   string `json:"turnId"`
@@ -208,7 +205,7 @@ func (m *Manager) observeDiscussionLocked(r *runtimeSession, method string, para
 		if r.DraftReply != nil && r.DraftReply.Phase == "final_answer" && p.Item.Phase != "final_answer" {
 			return
 		}
-		r.DraftReply = &DiscussionReply{DocumentID: r.DocumentID, Discussions: append([]string{}, r.ActiveInput.Context.Selected...), ThreadID: r.ThreadID, TurnID: p.TurnID, ItemID: p.Item.ID, Body: p.Item.Text, Phase: p.Item.Phase}
+		r.DraftReply = &DiscussionReply{DocumentID: r.ActiveInput.Context.DocumentID, Discussions: append([]string{}, r.ActiveInput.Context.Selected...), ThreadID: r.ThreadID, TurnID: p.TurnID, ItemID: p.Item.ID, Body: p.Item.Text, Phase: p.Item.Phase}
 	case "turn/completed":
 		if p.Turn.ID == "" || p.Turn.ID != r.ActiveTurnID {
 			return
@@ -258,9 +255,6 @@ func (m *Manager) FinishReply(id, threadID, turnID, itemID string, written []Wri
 }
 
 func (m *Manager) restoreDiscussionLocked(r *runtimeSession) error {
-	if r.ParentSessionID == "" {
-		return nil
-	}
 	// 日志是完整输入和回合的依据；不依赖网页缓存或最后 1000 条事件。
 	scratch := &runtimeSession{Session: Session{ParentSessionID: r.ParentSessionID, DocumentID: r.DocumentID, ThreadID: r.ThreadID}, completedTurns: map[string]bool{}}
 	inputs := map[string]Input{}

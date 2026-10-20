@@ -359,18 +359,20 @@ func (m *Manager) send(ctx context.Context, id, text string, snapshot *Discussio
 		m.mu.Unlock()
 		return SendResult{}, errors.New("会话未连接，请先创建或恢复")
 	}
-	if r.ParentSessionID != "" {
-		if snapshot == nil || snapshot.DocumentID != r.DocumentID || snapshot.ThreadID != r.ThreadID {
+	// 讨论专用会话只接收其文档的讨论上下文；其他会话可附带任一文档的讨论上下文，也可发送普通输入。
+	if r.ParentSessionID != "" && (snapshot == nil || snapshot.DocumentID != r.DocumentID) {
+		m.mu.Unlock()
+		return SendResult{}, errors.New("讨论专用会话须发送与其关联的上下文预览")
+	}
+	if snapshot != nil {
+		if snapshot.ThreadID != r.ThreadID {
 			m.mu.Unlock()
-			return SendResult{}, errors.New("讨论专用会话须发送与其关联的上下文预览")
+			return SendResult{}, errors.New("原生会话已变化，请重新预览")
 		}
 		if ContextHash(r.DiscussionContext) != baseline || r.ContextUncertain && !snapshot.Full {
 			m.mu.Unlock()
 			return SendResult{}, errors.New("同步基线已变化或送达结果不明，请重新预览并完整发送")
 		}
-	} else if snapshot != nil {
-		m.mu.Unlock()
-		return SendResult{}, errors.New("工作会话不能接收讨论同步记录")
 	}
 	queued := r.busy || len(r.Queue) > 0 || r.QueuePaused
 	if queued && len(r.Queue) >= 20 {
@@ -788,10 +790,8 @@ func (m *Manager) Compact(ctx context.Context, id string) (Session, error) {
 	r.LastTurnID = ""
 	r.LastTurnStatus = ""
 	r.LastError = ""
-	if r.ParentSessionID != "" {
-		r.DiscussionContext = nil
-		r.ContextUncertain = false
-	}
+	r.DiscussionContext = nil
+	r.ContextUncertain = false
 	change, _ := json.Marshal(map[string]string{"previousThreadId": previousThread, "threadId": r.ThreadID, "reason": "已清空原生上下文并重建 thread；未重发任务"})
 	if err = m.recordLocked(r, "workbench/contextCleared", nil, change); err != nil {
 		return Session{}, err

@@ -482,3 +482,100 @@ func TestUnroutedMultiDiscussionReplyIsNotGuessed(t *testing.T) {
 		}
 	}
 }
+
+// 讨论可交给已有的非专用会话：首次完整、之后增量，回复写回所列讨论，不同文档的已送达记录互不覆盖。
+func TestDiscussionDeliveredToExistingSession(t *testing.T) {
+	s, _ := discussionServer(t)
+	var work agent.Session
+	if code := jsonRequest(t, s, "/api/agents", map[string]string{"name": "已有会话"}, &work); code != 201 {
+		t.Fatal("create session", code)
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	s.mu.Lock()
+	state, err := s.project.Collaboration()
+	if err == nil {
+		_, err = s.project.SaveCollaboration(state.Generation, []project.Thread{
+			{ID: "D", DocumentID: "PLAN.md", Kind: "comment", Status: "open", Messages: []project.Message{{ID: "C1", Author: "我", Role: "human", Intent: "comment", Body: "第一条意见", CreatedAt: now}}},
+			{ID: "E", DocumentID: "docs/findings.md", Kind: "comment", Status: "open", Messages: []project.Message{{ID: "E1", Author: "我", Role: "human", Intent: "comment", Body: "另一文档的意见", CreatedAt: now}}},
+		})
+	}
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	messages := func(id string) []project.Message {
+		s.mu.RLock()
+		defer s.mu.RUnlock()
+		current, _ := s.project.Collaboration()
+		for _, thread := range current.Threads {
+			if thread.ID == id {
+				return thread.Messages
+			}
+		}
+		return nil
+	}
+	deliver := func(threadID string, count int) {
+		t.Helper()
+		input := PreviewInput{Text: "回应", SessionID: work.ID, ThreadIDs: []string{threadID}}
+		var preview PreviewResult
+		if code := jsonRequest(t, s, "/api/agents/preview", input, &preview); code != 200 {
+			t.Fatal("preview", threadID, code)
+		}
+		if code := jsonRequest(t, s, "/api/agents/"+work.ID+"/input", map[string]any{"preview": input, "checksum": preview.Checksum}, nil); code != 200 {
+			t.Fatal("send", threadID, code)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for time.Now().Before(deadline) && len(messages(threadID)) < count {
+			time.Sleep(20 * time.Millisecond)
+		}
+		got := messages(threadID)
+		if len(got) != count || got[count-1].Source == nil || got[count-1].Source.SessionID != work.ID {
+			t.Fatal("reply not written back from the existing session", threadID, got)
+		}
+	}
+	var preview PreviewResult
+	if code := jsonRequest(t, s, "/api/agents/preview", PreviewInput{Text: "回应", SessionID: work.ID, ThreadIDs: []string{"D"}}, &preview); code != 200 || preview.Mode != "完整" || !strings.Contains(preview.Text, "第一条意见") || preview.Context == nil || preview.Context.DocumentID != "PLAN.md" {
+		t.Fatal("first preview not full", code, preview)
+	}
+	if code := jsonRequest(t, s, "/api/agents/preview", PreviewInput{Text: "回应", SessionID: work.ID, ThreadIDs: []string{"D", "E"}}, nil); code < 400 {
+		t.Fatal("discussions from different documents accepted", code)
+	}
+	deliver("D", 2)
+	// 普通输入不附带讨论材料，也不改变已送达记录。
+	before, _ := s.agents.Get(work.ID)
+	if code := jsonRequest(t, s, "/api/agents/"+work.ID+"/input", map[string]string{"text": "普通任务"}, nil); code != 200 {
+		t.Fatal("plain input rejected", code)
+	}
+	waitReply(t, s, work.ID, func(current agent.Session) bool {
+		return current.State == "idle" && current.LastTurnID != before.LastTurnID
+	})
+	if after, _ := s.agents.Get(work.ID); agent.ContextHash(after.DiscussionContext) != agent.ContextHash(before.DiscussionContext) {
+		t.Fatal("plain input changed delivered discussion records")
+	}
+	s.mu.Lock()
+	state, _ = s.project.Collaboration()
+	for i := range state.Threads {
+		if state.Threads[i].ID == "D" {
+			state.Threads[i].Messages = append(state.Threads[i].Messages, project.Message{ID: "C2", Author: "我", Role: "human", Intent: "comment", Body: "第二条意见", CreatedAt: now})
+		}
+	}
+	_, err = s.project.SaveCollaboration(state.Generation, state.Threads)
+	s.mu.Unlock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code := jsonRequest(t, s, "/api/agents/preview", PreviewInput{Text: "回应", SessionID: work.ID, ThreadIDs: []string{"D"}}, &preview); code != 200 || preview.Mode != "增量" || !strings.Contains(preview.Text, "第二条意见") || strings.Contains(preview.Text, "第一条意见") || strings.Contains(preview.Text, "协议测试回复") {
+		t.Fatal("second preview not incremental", code, preview.Text)
+	}
+	if strings.Contains(preview.Text, "另一文档的意见") {
+		t.Fatal("other document leaked into preview")
+	}
+	deliver("E", 2)
+	current, _ := s.agents.Get(work.ID)
+	if _, kept := current.DiscussionContext.Discussions["D"]; !kept {
+		t.Fatal("delivering another document dropped the earlier discussion record", current.DiscussionContext)
+	}
+	if code := jsonRequest(t, s, "/api/agents/preview", PreviewInput{Text: "回应", SessionID: work.ID, ThreadIDs: []string{"D"}}, &preview); code != 200 || preview.Mode != "增量" || strings.Contains(preview.Text, "第一条意见") {
+		t.Fatal("cross-document delivery reset the incremental baseline", code, preview.Text)
+	}
+}

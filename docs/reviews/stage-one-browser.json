@@ -1,4 +1,5 @@
 {
+  "discussionToExistingSession": true,
   "inlineAnnotationComposer": true,
   "inlineThreadExpansion": true,
   "documentPageAgentReply": true,

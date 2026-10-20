@@ -165,7 +165,8 @@ func (s *Server) buildPreviewLocked(input PreviewInput, m *agent.Manager) (Previ
 		if err != nil {
 			return result, err
 		}
-		if session.ParentSessionID != "" {
+		// 讨论专用会话按其文档同步；其他会话只在明确列出讨论时接收材料，按讨论 ID 增量。
+		if session.ParentSessionID != "" || len(input.ThreadIDs) > 0 {
 			baseline = session.DiscussionContext
 			if baseline != nil && (baseline.ThreadID != session.ThreadID || baseline.Discussions == nil) {
 				baseline = nil
@@ -173,16 +174,15 @@ func (s *Server) buildPreviewLocked(input PreviewInput, m *agent.Manager) (Previ
 			if session.ContextUncertain && !input.Full {
 				return result, errors.New("上次送达结果不明，请勾选完整重发")
 			}
-		} else if len(input.ThreadIDs) > 0 {
-			return result, errors.New("请使用文档讨论专用会话")
 		}
 	} else if len(input.ThreadIDs) > 0 {
-		return result, errors.New("请使用文档讨论专用会话")
+		return result, errors.New("请选择接收讨论的会话")
 	}
 	result.Baseline = agent.ContextHash(session.DiscussionContext)
 	var prompt strings.Builder
 	prompt.WriteString(input.Text)
-	if session.ParentSessionID != "" {
+	bound := session.ParentSessionID != ""
+	if bound || len(input.ThreadIDs) > 0 {
 		state, err := s.project.Collaboration()
 		if err != nil {
 			return result, err
@@ -192,9 +192,22 @@ func (s *Server) buildPreviewLocked(input PreviewInput, m *agent.Manager) (Previ
 			requested[id] = true
 		}
 		explicit := len(requested) > 0
+		documentID := session.DocumentID
+		if !bound {
+			for _, thread := range state.Threads {
+				if requested[thread.ID] {
+					documentID = thread.DocumentID
+					break
+				}
+			}
+		}
 		threads, current := []project.Thread{}, map[string]bool{}
 		for _, thread := range state.Threads {
-			if thread.DocumentID != session.DocumentID {
+			// 非专用会话的已送达记录可能跨文档，按讨论 ID 保留全部仍存在的讨论。
+			if !bound {
+				current[thread.ID] = true
+			}
+			if thread.DocumentID != documentID {
 				continue
 			}
 			current[thread.ID] = true
@@ -203,6 +216,9 @@ func (s *Server) buildPreviewLocked(input PreviewInput, m *agent.Manager) (Previ
 			}
 		}
 		if explicit && len(threads) != len(requested) {
+			if !bound {
+				return result, errors.New("所选讨论不存在或不属于同一文档")
+			}
 			return result, errors.New("所选讨论不存在或不属于该会话的文档")
 		}
 		if len(threads) == 0 {
@@ -213,9 +229,11 @@ func (s *Server) buildPreviewLocked(input PreviewInput, m *agent.Manager) (Previ
 		if full {
 			result.Mode = "完整"
 		}
-		snapshot := &agent.DiscussionContext{ThreadID: session.ThreadID, DocumentID: session.DocumentID, Discussions: map[string]agent.DiscussionBaseline{}, Selected: []string{}, Full: full}
+		snapshot := &agent.DiscussionContext{ThreadID: session.ThreadID, DocumentID: documentID, Discussions: map[string]agent.DiscussionBaseline{}, Selected: []string{}, Full: full}
 		if baseline != nil {
-			snapshot.DocumentRevision = baseline.DocumentRevision
+			if baseline.DocumentID == documentID {
+				snapshot.DocumentRevision = baseline.DocumentRevision
+			}
 			if !full {
 				for id, previous := range baseline.Discussions {
 					if current[id] {
@@ -225,7 +243,7 @@ func (s *Server) buildPreviewLocked(input PreviewInput, m *agent.Manager) (Previ
 			}
 		}
 		result.Context = snapshot
-		fmt.Fprintf(&prompt, "\n\n--- %s文档讨论 · %s · %d 条 ---\n", result.Mode, session.DocumentID, len(threads))
+		fmt.Fprintf(&prompt, "\n\n--- %s文档讨论 · %s · %d 条 ---\n", result.Mode, documentID, len(threads))
 		if len(threads) > 1 {
 			prompt.WriteString("请逐条回应以下讨论。每条回应单独成段，以「### 讨论 <ID>」开头，ID 原样保留；无需回应的讨论可以省略。\n")
 		}
@@ -237,7 +255,7 @@ func (s *Server) buildPreviewLocked(input PreviewInput, m *agent.Manager) (Previ
 			snapshot.Discussions[thread.ID] = writeDiscussion(&prompt, thread, previous, session)
 			snapshot.Selected = append(snapshot.Selected, thread.ID)
 		}
-		if !full {
+		if !full && bound {
 			deleted := []string{}
 			for id := range baseline.Discussions {
 				if !current[id] {
@@ -262,7 +280,7 @@ func (s *Server) buildPreviewLocked(input PreviewInput, m *agent.Manager) (Previ
 		}
 		if result.Context != nil && path == result.Context.DocumentID {
 			result.Context.DocumentRevision = doc.Revision
-			if result.Mode == "增量" && baseline.DocumentRevision == doc.Revision {
+			if result.Mode == "增量" && baseline.DocumentID == path && baseline.DocumentRevision == doc.Revision {
 				continue
 			}
 		}
