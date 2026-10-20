@@ -100,6 +100,8 @@ go build -o bin/agent-workbench ./cmd/agent-workbench
 
 `--model` 指定模型，默认沿用原生配置；`--codex-bin` 指定本机可执行文件路径。默认沙箱为 `workspace-write`，审批策略为 `on-request`。支持的沙箱为 `read-only`、`workspace-write`，审批策略为 `on-request`、`never`。
 
+认证由本机 Codex CLI 负责，网页不保存或填写密钥。终端运行 `codex login` 用 ChatGPT 账号授权；使用 API key 时在 https://platform.openai.com/api-keys 创建后执行 `printenv OPENAI_API_KEY | codex login --with-api-key` 写入（两种方式互斥，切换即替换）。`codex login status` 查看当前认证方式；会话报认证错误时在 CLI 侧修复，重启工作台后生效。
+
 此命令启动新的 `codex app-server` 会话，日常输入由网页接收。当前最多同时连接 8 个原生会话，讨论参与会话也计入此限制。
 
 也可以接入本机已有的原生 thread：在新建会话对话框中填写 thread ID，或点「载入本机原生会话」从列表选择。接入通过 thread/resume 连接，工作台会话与 CLI 会话共享同一原生历史；thread 不存在或缺少 rollout 时直接报错，不会新建空会话替代。工作台不接管正在运行的 TUI，两边同时输入的行为尚未验证。
